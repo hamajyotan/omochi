@@ -17,7 +17,7 @@ class QuestExecutionDockerRunnerTest < ActiveSupport::TestCase
     assert quest.reload.completed?
 
     spec = @fake_docker_client.created_containers.sole
-    assert_equal({ "OMOCHI_QUEST_ID" => quest.public_id, "OMOCHI_EXECUTION_ID" => execution.id.to_s }, spec[:env])
+    assert_equal({ "OMOCHI_QUEST_ID" => quest.public_id, "OMOCHI_EXECUTION_ID" => execution.id.to_s, "LANG" => "C.UTF-8", "LC_ALL" => "C.UTF-8" }, spec[:env])
     assert File.exist?(File.join(execution.workspace_path, "quest_log.md"))
   end
 

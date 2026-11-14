@@ -95,7 +95,9 @@ class QuestExecution::DockerRunner
         pids_limit: docker_setting(:pids_limit),
         env: {
           "OMOCHI_QUEST_ID" => execution.quest.public_id,
-          "OMOCHI_EXECUTION_ID" => execution.id.to_s
+          "OMOCHI_EXECUTION_ID" => execution.id.to_s,
+          "LANG" => "C.UTF-8",
+          "LC_ALL" => "C.UTF-8"
         }
       )
     end
