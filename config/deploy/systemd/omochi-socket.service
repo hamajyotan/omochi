@@ -1,0 +1,17 @@
+[Unit]
+Description=omochi Slack Socket Mode Client
+After=network.target
+
+[Service]
+Type=simple
+User=omochi
+Group=omochi
+WorkingDirectory=/home/omochi/omochi
+Environment=RAILS_ENV=production
+EnvironmentFile=/var/lib/omochi/.env
+ExecStart=/home/omochi/.local/share/mise/shims/bundle exec bin/socket
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

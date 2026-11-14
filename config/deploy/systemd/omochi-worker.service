@@ -1,0 +1,18 @@
+[Unit]
+Description=omochi Solid Queue Worker
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=omochi
+Group=omochi
+WorkingDirectory=/home/omochi/omochi
+Environment=RAILS_ENV=production
+EnvironmentFile=/var/lib/omochi/.env
+ExecStart=/home/omochi/.local/share/mise/shims/bundle exec bin/jobs
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=omochi Puma Web Server
+After=network.target
+
+[Service]
+Type=simple
+User=omochi
+Group=omochi
+WorkingDirectory=/home/omochi/omochi
+Environment=RAILS_ENV=production
+EnvironmentFile=/var/lib/omochi/.env
+ExecStart=/home/omochi/.local/share/mise/shims/bundle exec rails server -b 127.0.0.1 -p 3000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
