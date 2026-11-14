@@ -21,7 +21,7 @@ class QuestExecutionEvent < ApplicationRecord
   # Parses one line of stdout/stderr from the Agent Container into attributes
   # suitable for `QuestExecution#record_event!`.
   def self.parse_line(raw_line, stream: "stdout")
-    line = raw_line.to_s.encode("UTF-8", invalid: :replace, undef: :replace).chomp
+    line = raw_line.to_s.dup.force_encoding(Encoding::UTF_8).scrub.chomp
     truncated = line.bytesize > MAX_LINE_BYTES
     line = line.byteslice(0, MAX_LINE_BYTES).scrub if truncated
 

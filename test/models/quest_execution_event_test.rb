@@ -1,6 +1,13 @@
 require "test_helper"
 
 class QuestExecutionEventTest < ActiveSupport::TestCase
+  test "handles multibyte UTF-8 input correctly even from binary stream" do
+    raw_binary = %Q({"type":"completed","summary":"初めての本番 Quest テスト"}\n).b
+    parsed = QuestExecutionEvent.parse_line(raw_binary)
+    assert_equal "completed", parsed[:event_type]
+    assert_equal "初めての本番 Quest テスト", parsed[:message]
+  end
+
   test "parses structured JSONL events on stdout" do
     parsed = QuestExecutionEvent.parse_line('{"type":"progress","message":"Step 1","data":{"step":1}}')
 
