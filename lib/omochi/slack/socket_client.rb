@@ -56,8 +56,15 @@ module Omochi
         envelope = JSON.parse(raw_json.to_s)
         return :ignored unless envelope.is_a?(Hash)
 
+        if envelope["type"] == "hello"
+          @logger&.info("[omochi-socket] connected to Slack Socket Mode (hello received)")
+          puts "[omochi-socket] Connected to Slack Socket Mode."
+          return :handled
+        end
+
         if envelope["type"] == "disconnect"
           @logger&.info("[omochi-socket] disconnect requested by Slack (#{envelope['reason']})")
+          puts "[omochi-socket] Disconnect requested by Slack (#{envelope['reason']}). Reconnecting..."
           return :disconnect
         end
 
