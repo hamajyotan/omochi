@@ -1,0 +1,6 @@
+<tr id="<%= dom_id(quest) %>">
+  <td><%= link_to quest.public_id, quest, class: "mono" %></td>
+  <td><%= quest.title %></td>
+  <td><%= status_badge(quest.status) %></td>
+  <td><%= format_time(quest.updated_at) %></td>
+</tr>

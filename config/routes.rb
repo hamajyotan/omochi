@@ -4,7 +4,16 @@ Rails.application.routes.draw do
 
   # Quest URLs use the public Quest ID (qst_...), never the internal primary key.
   resources :quests, only: %i[index show new create] do
-    resources :instructions, only: :create, module: :quests
+    member do
+      post :cancel
+      post :reopen
+    end
+
+    resources :instructions, only: :create, module: :quests do
+      member do
+        post :retry
+      end
+    end
   end
 
   root "quests#index"

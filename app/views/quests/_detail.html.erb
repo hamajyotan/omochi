@@ -1,0 +1,141 @@
+<% instructions = quest.instructions.includes(:external_resource) %>
+<% executions = quest.executions.includes(:instruction, :events) %>
+<% external_resources = quest.external_resources.order(:id) %>
+
+<div id="<%= dom_id(quest, :detail) %>">
+  <div class="quest-header">
+    <div class="quest-header__title-row">
+      <h1><%= quest.title %></h1>
+      <div class="quest-actions">
+        <% if quest.cancellable? %>
+          <%= button_to "Cancel Quest", cancel_quest_path(quest), method: :post, class: "btn btn--danger" %>
+        <% end %>
+        <% if quest.cancelled? || quest.failed? %>
+          <%= button_to "Reopen Quest", reopen_quest_path(quest), method: :post, class: "btn" %>
+        <% end %>
+      </div>
+    </div>
+    <p>
+      <span class="mono"><%= quest.public_id %></span>
+      <%= status_badge(quest.status) %>
+    </p>
+    <p class="meta">Created <%= format_time(quest.created_at) %> · Updated <%= format_time(quest.updated_at) %></p>
+  </div>
+
+  <section>
+    <h2>External Resources</h2>
+    <% if external_resources.empty? %>
+      <p class="empty">関連付けられた外部リソースはありません。</p>
+    <% else %>
+      <ul>
+        <% external_resources.each do |resource| %>
+          <li id="<%= dom_id(resource) %>">
+            <%= resource.platform %> / <%= resource.resource_type %>:
+            <%= external_resource_link(resource) %>
+          </li>
+        <% end %>
+      </ul>
+    <% end %>
+  </section>
+
+  <section>
+    <h2>Instructions Queue</h2>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Instruction</th>
+          <th>Source</th>
+          <th>Status</th>
+          <th>Received</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% instructions.each do |instruction| %>
+          <tr id="<%= dom_id(instruction) %>">
+            <td><%= instruction.sequence %></td>
+            <td class="pre"><%= instruction.body %></td>
+            <td><%= instruction.source_platform %></td>
+            <td><%= status_badge(instruction.status) %></td>
+            <td><%= format_time(instruction.received_at) %></td>
+            <td>
+              <% if instruction.retryable? %>
+                <%= button_to "Retry", retry_quest_instruction_path(quest, instruction), method: :post, class: "btn btn--small" %>
+              <% else %>
+                —
+              <% end %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Executions</h2>
+    <% if executions.empty? %>
+      <p class="empty">Execution はまだありません。</p>
+    <% else %>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Instruction</th>
+            <th>Status</th>
+            <th>Container / Cleanup</th>
+            <th>Started</th>
+            <th>Duration</th>
+            <th>Result / Error / Events</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% executions.each do |execution| %>
+            <tr id="<%= dom_id(execution) %>">
+              <td><%= execution.id %></td>
+              <td>#<%= execution.instruction.sequence %></td>
+              <td>
+                <%= status_badge(execution.status) %>
+                <% if execution.exit_code %>
+                  <span class="mono">(exit <%= execution.exit_code %>)</span>
+                <% end %>
+              </td>
+              <td class="mono">
+                <% if execution.container_id.present? %>
+                  <%= execution.container_id.truncate(16, omission: "…") %>
+                  / <%= execution.cleanup_status %>
+                <% else %>
+                  —
+                <% end %>
+              </td>
+              <td><%= format_time(execution.started_at) %></td>
+              <td><%= format_duration(execution.duration) %></td>
+              <td class="pre">
+                <% if execution.error_kind %>
+                  <div class="execution-error">
+                    <strong><%= execution.error_kind %></strong>: <%= execution.error_message %>
+                  </div>
+                <% elsif execution.result_summary.present? %>
+                  <div class="execution-result"><%= execution.result_summary %></div>
+                <% end %>
+                <% if execution.events.any? %>
+                  <details class="execution-events" <%= "open" if execution.active? || execution.failed? %>>
+                    <summary>Events &amp; Logs (<%= execution.events.size %>)</summary>
+                    <ul class="event-log">
+                      <% execution.events.each do |event| %>
+                        <li id="<%= dom_id(event) %>" class="event-log__item event-log__item--<%= event.event_type %>">
+                          <span class="mono">#<%= event.sequence %> [<%= event.event_type %>]</span>
+                          <%= event.message %>
+                        </li>
+                      <% end %>
+                    </ul>
+                  </details>
+                <% end %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% end %>
+  </section>
+</div>

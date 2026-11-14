@@ -60,6 +60,7 @@ class QuestExecution < ApplicationRecord
     attrs = { heartbeat_at: now }
     attrs[:workspace_path] = workspace_path if workspace_path
     transition!(from: %w[queued], to: :preparing, **attrs)
+    quest.broadcast_dashboard_updates
   end
 
   def mark_running!(container_id: nil)
@@ -71,6 +72,7 @@ class QuestExecution < ApplicationRecord
     end
     transition!(from: %w[queued preparing], to: :running, **attrs)
     notify_slack!("🚀 Running instruction ##{instruction.sequence} for `#{quest.public_id}`...")
+    quest.broadcast_dashboard_updates
   end
 
   def touch_heartbeat!(at: Time.current)
@@ -78,9 +80,9 @@ class QuestExecution < ApplicationRecord
   end
 
   def record_event!(event_type:, message: nil, payload: {}, occurred_at: Time.current)
-    transaction do
+    event = transaction do
       next_seq = (events.maximum(:sequence) || 0) + 1
-      event = events.create!(
+      created = events.create!(
         sequence: next_seq,
         event_type: event_type,
         message: message,
@@ -88,8 +90,10 @@ class QuestExecution < ApplicationRecord
         occurred_at: occurred_at
       )
       touch_heartbeat!(at: occurred_at)
-      event
+      created
     end
+    quest.broadcast_dashboard_updates
+    event
   end
 
   def record_output_line!(raw_line, stream: "stdout")
@@ -99,10 +103,12 @@ class QuestExecution < ApplicationRecord
 
   def mark_cleaned_up!
     update!(cleanup_status: :completed)
+    quest.broadcast_dashboard_updates
   end
 
   def mark_cleanup_failed!
     update!(cleanup_status: :failed)
+    quest.broadcast_dashboard_updates
   end
 
   def succeed!(result_summary: nil, exit_code: nil)
@@ -117,6 +123,32 @@ class QuestExecution < ApplicationRecord
       error_message: error_message&.truncate(10_000),
       exit_code:
     )
+  end
+
+  def cancel_in_transaction!(reason: "Cancelled by user")
+    return false unless active?
+
+    update!(
+      status: :cancelled,
+      finished_at: Time.current,
+      error_kind: "cancelled_by_user",
+      error_message: reason
+    )
+    instruction.update!(status: :cancelled)
+    notify_slack!("🛑 Instruction ##{instruction.sequence} cancelled for `#{quest.public_id}`.")
+    true
+  end
+
+  def stop_and_cleanup_container!
+    return if container_id.blank?
+
+    docker_client = QuestExecution::DockerRunner.docker_client_factory.call
+    docker_client.stop_container(container_id)
+    docker_client.remove_container(container_id)
+    mark_cleaned_up!
+  rescue StandardError => e
+    Rails.error.report(e, context: { execution_id: id, container_id: container_id })
+    mark_cleanup_failed!
   end
 
   def active?
@@ -156,6 +188,7 @@ class QuestExecution < ApplicationRecord
       end
       if finished
         notify_slack_finished!
+        quest.broadcast_dashboard_updates
         quest.enqueue_processing if quest.queued_instructions?
       end
       finished

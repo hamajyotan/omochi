@@ -1,8 +1,11 @@
 # A request or follow-up instruction for a Quest, persisted in the order omochi
 # accepted it. The body is immutable once accepted.
 class QuestInstruction < ApplicationRecord
+  class CannotRetry < StandardError; end
+
   SOURCE_PLATFORMS = %w[dashboard slack github].freeze
   MAX_BODY_LENGTH = 10_000
+  RETRYABLE_STATUSES = %w[failed cancelled].freeze
 
   enum :status, {
     queued: "queued",
@@ -30,6 +33,26 @@ class QuestInstruction < ApplicationRecord
     return if source_event_id.blank?
 
     find_by(source_platform:, source_event_id:)
+  end
+
+  def retryable?
+    RETRYABLE_STATUSES.include?(status)
+  end
+
+  # Re-queues a failed or cancelled instruction so a new QuestExecution will
+  # process it while keeping all past QuestExecutions intact.
+  def retry!
+    transaction do
+      reload
+      raise CannotRetry, "Instruction ##{sequence} is #{status} and cannot be retried" unless retryable?
+
+      update!(status: :queued)
+      quest.reload
+      quest.update!(status: :pending) unless quest.running?
+    end
+    quest.broadcast_dashboard_updates
+    quest.enqueue_processing
+    self
   end
 
   private

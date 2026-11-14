@@ -1,6 +1,16 @@
 <% content_for :title, "Quests | omochi" %>
 
-<h1>Quests</h1>
+<%= turbo_stream_from :quests %>
+
+<div class="page-header">
+  <h1>Quests</h1>
+  <nav class="status-filters" aria-label="Status filter">
+    <%= link_to "All", quests_path, class: ("active" if @status_filter.nil?) %>
+    <% Quest.statuses.each_key do |status| %>
+      <%= link_to status, quests_path(status: status), class: ("active" if @status_filter == status) %>
+    <% end %>
+  </nav>
+</div>
 
 <% if @quests.empty? %>
   <p class="empty">Quest はまだありません。<%= link_to "新しい Quest を作成", new_quest_path %></p>
@@ -14,14 +24,9 @@
         <th>Updated</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="quests_rows">
       <% @quests.each do |quest| %>
-        <tr id="<%= dom_id(quest) %>">
-          <td><%= link_to quest.public_id, quest, class: "mono" %></td>
-          <td><%= quest.title %></td>
-          <td><%= status_badge(quest.status) %></td>
-          <td><%= format_time(quest.updated_at) %></td>
-        </tr>
+        <%= render "quests/quest_row", quest: quest %>
       <% end %>
     </tbody>
   </table>

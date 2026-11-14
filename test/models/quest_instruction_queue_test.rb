@@ -197,4 +197,53 @@ class QuestInstructionQueueTest < ActiveSupport::TestCase
     assert_equal "original", execution.reload.instruction.body
     assert_equal %w[processing queued], quest.instructions.pluck(:status)
   end
+  test "cancel! cancels active execution, stops container, and cancels queued instructions" do
+    quest = start_quest(body: "running task")
+    quest.receive_instruction!(body: "queued follow-up", source_platform: "dashboard")
+    execution = quest.claim_next_instruction!
+    execution.mark_running!(container_id: "ctr_to_cancel")
+
+    quest.cancel!
+
+    assert quest.reload.cancelled?
+    assert execution.reload.cancelled?
+    assert_equal "cancelled_by_user", execution.error_kind
+    assert_equal "completed", execution.cleanup_status
+    assert_includes @fake_docker_client.stopped_containers, "ctr_to_cancel"
+    assert_includes @fake_docker_client.removed_containers, "ctr_to_cancel"
+    assert_equal %w[cancelled cancelled], quest.instructions.pluck(:status)
+  end
+
+  test "reopen! moves a cancelled quest back to pending so it can accept new instructions" do
+    quest = start_quest
+    quest.cancel!
+    assert quest.reload.cancelled?
+
+    quest.reopen!
+    assert quest.reload.pending?
+
+    instruction = quest.receive_instruction!(body: "resumed work", source_platform: "dashboard")
+    assert instruction.queued?
+  end
+
+  test "retry! re-queues a failed instruction and creates a new execution while keeping past executions" do
+    quest = start_quest(body: "flaky task")
+    first_exec = quest.claim_next_instruction!
+    first_exec.fail!(error_kind: "agent_error", error_message: "failed once")
+
+    instruction = quest.instructions.sole
+    assert instruction.reload.failed?
+
+    instruction.retry!
+    assert instruction.reload.queued?
+    assert quest.reload.pending?
+
+    second_exec = quest.claim_next_instruction!
+    assert_not_equal first_exec.id, second_exec.id
+    second_exec.succeed!(result_summary: "succeeded on retry")
+
+    assert quest.reload.completed?
+    assert_equal 2, quest.executions.count
+    assert_equal %w[failed succeeded], quest.executions.order(:id).pluck(:status)
+  end
 end

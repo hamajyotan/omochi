@@ -1,119 +1,20 @@
 <% content_for :title, "#{@quest.title} | omochi" %>
 
-<div class="quest-header">
-  <h1><%= @quest.title %></h1>
-  <p>
-    <span class="mono"><%= @quest.public_id %></span>
-    <%= status_badge(@quest.status) %>
-  </p>
-  <p class="meta">Created <%= format_time(@quest.created_at) %> · Updated <%= format_time(@quest.updated_at) %></p>
-</div>
+<%= turbo_stream_from @quest %>
+
+<%= render "quests/detail", quest: @quest %>
 
 <section>
-  <h2>External Resources</h2>
-  <% if @external_resources.empty? %>
-    <p class="empty">関連付けられた外部リソースはありません。</p>
+  <h2>Add Instruction</h2>
+  <% if @quest.cancelled? %>
+    <p class="meta">この Quest はキャンセルされています。追加の指示を送るには上の「Reopen Quest」から再開してください。</p>
   <% else %>
-    <ul>
-      <% @external_resources.each do |resource| %>
-        <li id="<%= dom_id(resource) %>">
-          <%= resource.platform %> / <%= resource.resource_type %>:
-          <%= external_resource_link(resource) %>
-        </li>
-      <% end %>
-    </ul>
-  <% end %>
-</section>
-
-<section>
-  <h2>Instructions</h2>
-  <table class="table">
-    <thead>
-      <tr><th>#</th><th>Instruction</th><th>Source</th><th>Status</th><th>Received</th></tr>
-    </thead>
-    <tbody>
-      <% @instructions.each do |instruction| %>
-        <tr id="<%= dom_id(instruction) %>">
-          <td><%= instruction.sequence %></td>
-          <td class="pre"><%= instruction.body %></td>
-          <td><%= instruction.source_platform %></td>
-          <td><%= status_badge(instruction.status) %></td>
-          <td><%= format_time(instruction.received_at) %></td>
-        </tr>
-      <% end %>
-    </tbody>
-  </table>
-
-  <%= form_with model: @new_instruction, url: quest_instructions_path(@quest), class: "form" do |f| %>
-    <div class="field">
-      <%= f.label :body, "追加の指示" %>
-      <%= f.text_area :body, rows: 3, required: true %>
-    </div>
-    <%= f.submit "Send Instruction" %>
-  <% end %>
-</section>
-
-<section>
-  <h2>Executions</h2>
-  <% if @executions.empty? %>
-    <p class="empty">Execution はまだありません。</p>
-  <% else %>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Instruction</th>
-          <th>Status</th>
-          <th>Container / Cleanup</th>
-          <th>Started</th>
-          <th>Duration</th>
-          <th>Result / Error</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% @executions.each do |execution| %>
-          <tr id="<%= dom_id(execution) %>">
-            <td><%= execution.id %></td>
-            <td>#<%= execution.instruction.sequence %></td>
-            <td>
-              <%= status_badge(execution.status) %>
-              <% if execution.exit_code %>
-                <span class="mono">(exit <%= execution.exit_code %>)</span>
-              <% end %>
-            </td>
-            <td class="mono">
-              <% if execution.container_id.present? %>
-                <%= execution.container_id.truncate(16, omission: "…") %>
-                / <%= execution.cleanup_status %>
-              <% else %>
-                —
-              <% end %>
-            </td>
-            <td><%= format_time(execution.started_at) %></td>
-            <td><%= format_duration(execution.duration) %></td>
-            <td class="pre">
-              <% if execution.error_kind %>
-                <strong><%= execution.error_kind %></strong> <%= execution.error_message %>
-              <% else %>
-                <%= execution.result_summary %>
-              <% end %>
-              <% if execution.events.any? %>
-                <details class="execution-events">
-                  <summary>Events (<%= execution.events.size %>)</summary>
-                  <ul>
-                    <% execution.events.each do |event| %>
-                      <li id="<%= dom_id(event) %>">
-                        <span class="mono">#<%= event.sequence %> [<%= event.event_type %>]</span>
-                        <%= event.message %>
-                      </li>
-                    <% end %>
-                  </ul>
-                </details>
-              <% end %>
-            </td>
-          </tr>
-        <% end %>
-      </tbody>
-    </table>
+    <%= form_with model: @new_instruction, url: quest_instructions_path(@quest), class: "form" do |f| %>
+      <div class="field">
+        <%= f.label :body, "追加の指示" %>
+        <%= f.text_area :body, rows: 3, required: true %>
+      </div>
+      <%= f.submit "Send Instruction", class: "btn" %>
+    <% end %>
   <% end %>
 </section>

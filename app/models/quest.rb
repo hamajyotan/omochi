@@ -47,6 +47,26 @@ class Quest < ApplicationRecord
     executions.active.first
   end
 
+  # Broadcasts live updates to the Quest detail page (`turbo_stream_from @quest`)
+  # and the Quests index table (`turbo_stream_from :quests`).
+  def broadcast_dashboard_updates
+    reload
+    Turbo::StreamsChannel.broadcast_replace_to(
+      self,
+      target: ActionView::RecordIdentifier.dom_id(self, :detail),
+      partial: "quests/detail",
+      locals: { quest: self }
+    )
+    Turbo::StreamsChannel.broadcast_replace_to(
+      :quests,
+      target: ActionView::RecordIdentifier.dom_id(self),
+      partial: "quests/quest_row",
+      locals: { quest: self }
+    )
+  rescue StandardError => e
+    Rails.error.report(e, context: { quest: public_id })
+  end
+
   private
     def assign_public_id
       self.public_id ||= self.class.generate_public_id

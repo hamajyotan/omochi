@@ -15,8 +15,9 @@ module Quest::InstructionQueue
 
   class InstructionRejected < StandardError; end
 
-  # Provisional: completed / failed Quests are reopened by a new instruction.
-  # Behaviour for cancelled Quests is undecided (docs/open-questions.md §2).
+  # Completed / failed Quests are automatically reopened by a new instruction.
+  # Cancelled Quests require an explicit `reopen!` or `retry!` from the Dashboard
+  # (docs/decisions/0007-quest-cancel-reopen-and-retry.md).
   REOPENABLE_STATUSES = %w[completed failed].freeze
 
   class_methods do
@@ -32,6 +33,7 @@ module Quest::InstructionQueue
         resource = quest.external_resources.create!(external_resource) if external_resource
         quest.send(:append_instruction!, body:, source_platform:, source_event_id:, external_resource: resource)
       end
+      instruction.quest.broadcast_dashboard_updates
       instruction.quest.enqueue_processing if enqueue
       instruction
     rescue ActiveRecord::RecordNotUnique
@@ -52,6 +54,7 @@ module Quest::InstructionQueue
       update!(status: :pending) if REOPENABLE_STATUSES.include?(status)
       append_instruction!(body:, source_platform:, source_event_id:, external_resource:)
     end
+    broadcast_dashboard_updates
     enqueue_processing if enqueue
     instruction
   rescue ActiveRecord::RecordNotUnique
@@ -62,7 +65,7 @@ module Quest::InstructionQueue
   # Returns the new QuestExecution, or nil when there is nothing to do or another
   # Execution is already active. Safe to call repeatedly / concurrently.
   def claim_next_instruction!
-    transaction do
+    execution = transaction do
       next nil if executions.active.exists?
 
       instruction = instructions.queued.in_queue_order.first
@@ -72,8 +75,40 @@ module Quest::InstructionQueue
       update!(status: :running)
       executions.create!(instruction:, status: :queued)
     end
+    broadcast_dashboard_updates if execution
+    execution
   rescue ActiveRecord::RecordNotUnique
     nil
+  end
+
+  # Cancels the Quest, any active Execution (including stopping its container),
+  # and any queued/processing instructions.
+  def cancel!
+    active_exec = nil
+    transaction do
+      reload
+      active_exec = executions.active.first
+      active_exec&.cancel_in_transaction!(reason: "Cancelled by user")
+      instructions.where(status: %w[queued processing]).find_each do |inst|
+        inst.update!(status: :cancelled)
+      end
+      update!(status: :cancelled)
+    end
+
+    active_exec&.stop_and_cleanup_container!
+    broadcast_dashboard_updates
+    true
+  end
+
+  # Explicitly reopens a cancelled (or failed/completed) Quest from the Dashboard.
+  def reopen!
+    transaction do
+      reload
+      update!(status: :pending) unless running?
+    end
+    broadcast_dashboard_updates
+    enqueue_processing if queued_instructions?
+    true
   end
 
   # Called inside the Execution's finishing transaction.
@@ -93,6 +128,10 @@ module Quest::InstructionQueue
 
   def queued_instructions?
     instructions.queued.exists?
+  end
+
+  def cancellable?
+    pending? || running?
   end
 
   # Enqueue outside of any transaction: the queue lives in a separate database.

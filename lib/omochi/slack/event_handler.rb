@@ -7,7 +7,7 @@
 module Omochi
   module Slack
     class EventHandler
-      MENTION_PREFIX = /\A(?:\s*<@[A-Z0-9]+>\s*)+/
+      MENTION_PREFIX = /\A(?:\s*<@[A-Z0-9_]+>\s*)+/
       IGNORED_SUBTYPES = %w[bot_message message_changed message_deleted message_replied].freeze
 
       Result = Data.define(:status, :instruction, :created_quest, :duplicate)

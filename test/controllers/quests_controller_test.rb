@@ -80,4 +80,39 @@ class QuestsControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to quest_path(quest)
     assert_not_nil flash[:alert]
   end
+  test "index filters quests by status" do
+    pending_quest = start_quest(title: "Pending One")
+    completed_quest = start_quest(title: "Completed One")
+    completed_quest.claim_next_instruction!.succeed!(result_summary: "ok")
+
+    get quests_path(status: "completed")
+
+    assert_response :success
+    assert_select "td", text: "Completed One"
+    assert_select "td", text: "Pending One", count: 0
+    assert_equal "pending", pending_quest.reload.status
+  end
+
+  test "cancel and reopen actions transition the quest from the dashboard" do
+    quest = start_quest(title: "Cancellable")
+
+    post cancel_quest_path(quest)
+    assert_redirected_to quest_path(quest)
+    assert quest.reload.cancelled?
+
+    post reopen_quest_path(quest)
+    assert_redirected_to quest_path(quest)
+    assert quest.reload.pending?
+  end
+
+  test "retry action re-queues a failed instruction" do
+    quest = start_quest(title: "Retryable", body: "fail me")
+    instruction = quest.instructions.sole
+    quest.claim_next_instruction!.fail!(error_kind: "agent_error", error_message: "boom")
+
+    post retry_quest_instruction_path(quest, instruction)
+    assert_redirected_to quest_path(quest)
+    assert_equal "queued", instruction.reload.status
+    assert quest.reload.pending?
+  end
 end
