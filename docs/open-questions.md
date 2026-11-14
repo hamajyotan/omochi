@@ -19,13 +19,11 @@
 - 複数 Instruction を一つの Execution にまとめる将来拡張をどの程度考慮するか。
 - 失敗した Instruction を再実行する際、同じ Instruction を再試行するか、新しい Instruction を作るか。
 
-## 4. Slack のイベントと Quest の関連付け
+## 4. Slack のイベントと Quest の関連付け（決定済み → [ADR 0006](decisions/0006-slack-socket-mode-and-notifications.md)）
 
-- Thread 内のどの種類のメッセージを追加指示として扱うか。
-- Quest ID を含む返信をどのように発見・解釈するか。
-- bot 自身の投稿、編集、削除、ファイル添付などをどう扱うか。
-- Thread 以外の DM / channel message を対象にするか。
-- Slack Event の ACK と DB 永続化の順序。
+- `app_mention` の対象化、Thread `ExternalResource` による関連付け、DB 永続化後の ACK 返送、受付・開始・完了/失敗の 3 段階通知は ADR 0006 で決定済み。
+- 未決：
+  - ファイル添付や Thread 外 DM への将来拡張。
 
 ## 5. Docker 実行環境（決定済み → [ADR 0005](decisions/0005-docker-execution-isolation-and-workspace.md)）
 
@@ -33,13 +31,11 @@
 - 未決：
   - 完了から長期間経過した Quest workspace ディレクトリのアーカイブ・削除ポリシー（運用フェーズで検討）。
 
-## 6. プロセス構成と SQLite（一部決定 → [ADR 0003](decisions/0003-solid-queue-separate-database.md)）
+## 6. プロセス構成と SQLite（決定済み → [ADR 0003](decisions/0003-solid-queue-separate-database.md), [ADR 0005](decisions/0005-docker-execution-isolation-and-workspace.md), [ADR 0006](decisions/0006-slack-socket-mode-and-notifications.md)）
 
-- Solid Queue 用 DB をアプリケーション DB から分離し、`ReconcileQuestsJob` で enqueue 漏れ・heartbeat 期限切れ・Container cleanup 再試行を補完する方針は ADR 0003 / ADR 0005 で決定済み。
-- SQLite の WAL mode、`timeout: 5000`、IMMEDIATE トランザクションは設定済み。
+- `bin/rails server`（web）、`bin/jobs`（worker）、`bin/socket`（Slack Socket Mode）の 3 プロセス構成と、Solid Queue DB 分離 + `ReconcileQuestsJob` は決定済み。
 - 未決：
-  - `omochi-socket` プロセスの起動・監視方法（Phase 3）。
-  - バックアップ方針。
+  - 本番運用時のバックアップ方針。
 
 ## 7. Agent SDK / Agent Session
 
@@ -56,14 +52,13 @@
 - 単一 repository の設定方法。
 - GitHub への進捗・結果の反映方法。
 
-## 9. 運用・UI（一部決定 → [ADR 0004](decisions/0004-dotenv-for-development.md)）
+## 9. 運用・UI（一部決定 → [ADR 0004](decisions/0004-dotenv-for-development.md), [ADR 0006](decisions/0006-slack-socket-mode-and-notifications.md)）
 
-- Phase 1 では Dashboard 認証を設けず `127.0.0.1` バインド前提とすることは ADR 0004 で決定済み。
+- Phase 1 では Dashboard 認証を設けず `127.0.0.1` バインド前提とすることは ADR 0004 で決定済み。Slack 通知粒度は ADR 0006 で決定済み。
 - 未決：
   - Dashboard の認証方式（Phase 4 以降）。
   - ログの保存期間と表示・検索方法。
-  - Slack への進捗通知の頻度・粒度。
-  - Quest の手動再開・キャンセルの UI。
+  - Quest の手動再開・キャンセル・失敗 Instruction 再試行の UI（Phase 4）。
   - バックアップ・復旧手順。
 
 ## 決定事項の記録

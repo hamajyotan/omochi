@@ -13,6 +13,9 @@ module ActiveSupport
     setup do
       @fake_docker_client = Omochi::Docker::FakeClient.new
       QuestExecution::DockerRunner.docker_client_factory = -> { @fake_docker_client }
+
+      @fake_slack_client = Omochi::Slack::FakeWebClient.new
+      Omochi::Slack.web_client_factory = -> { @fake_slack_client }
     end
 
     # Creates a Quest with one queued instruction through the public domain API.

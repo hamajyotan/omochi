@@ -23,7 +23,7 @@ module Quest::InstructionQueue
     # Creates a new Quest together with its first instruction.
     # Returns the QuestInstruction (use #quest to get the Quest). If the source
     # event was already accepted, returns the previously accepted instruction.
-    def start!(title:, body:, source_platform:, source_event_id: nil, external_resource: nil)
+    def start!(title:, body:, source_platform:, source_event_id: nil, external_resource: nil, enqueue: true)
       instruction = QuestInstruction.find_duplicate(source_platform:, source_event_id:)
       return instruction if instruction
 
@@ -32,7 +32,7 @@ module Quest::InstructionQueue
         resource = quest.external_resources.create!(external_resource) if external_resource
         quest.send(:append_instruction!, body:, source_platform:, source_event_id:, external_resource: resource)
       end
-      instruction.quest.enqueue_processing
+      instruction.quest.enqueue_processing if enqueue
       instruction
     rescue ActiveRecord::RecordNotUnique
       QuestInstruction.find_duplicate(source_platform:, source_event_id:) || raise
@@ -41,7 +41,7 @@ module Quest::InstructionQueue
 
   # Accepts a follow-up instruction for this Quest.
   # Returns the QuestInstruction; duplicates return the earlier instruction.
-  def receive_instruction!(body:, source_platform:, source_event_id: nil, external_resource: nil)
+  def receive_instruction!(body:, source_platform:, source_event_id: nil, external_resource: nil, enqueue: true)
     instruction = QuestInstruction.find_duplicate(source_platform:, source_event_id:)
     return instruction if instruction
 
@@ -52,7 +52,7 @@ module Quest::InstructionQueue
       update!(status: :pending) if REOPENABLE_STATUSES.include?(status)
       append_instruction!(body:, source_platform:, source_event_id:, external_resource:)
     end
-    enqueue_processing
+    enqueue_processing if enqueue
     instruction
   rescue ActiveRecord::RecordNotUnique
     QuestInstruction.find_duplicate(source_platform:, source_event_id:) || raise

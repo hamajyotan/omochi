@@ -8,7 +8,7 @@
 
 - Ruby 4.0+
 - SQLite 3.8+
-- Docker Engine（Phase 2 以降で Agent Container の実行に使用）
+- Docker Engine（Agent Container の実行に使用）
 
 ## セットアップと起動
 
@@ -17,18 +17,19 @@ cp .env.example .env
 bin/setup --skip-server
 ```
 
-開発サーバー（`127.0.0.1:3000`）と Solid Queue worker の起動：
+開発サーバー（`127.0.0.1:3000`）、Solid Queue worker（`bin/jobs`）、Slack Socket Mode クライアント（`bin/socket`）の起動：
 
 ```bash
-# foreman がある場合は web と jobs を同時起動します
+# foreman がある場合は web / jobs / socket を同時起動します
 bin/dev
 
 # 別ターミナルで個別に起動する場合
 bin/rails server -b 127.0.0.1
 bin/jobs
+bin/socket
 ```
 
-> **Note:** Phase 1 時点では Dashboard に認証機能がないため、`127.0.0.1` にバインドしてローカル環境でのみ利用してください。また、Phase 1 の Execution runner は Docker を使わないプレースホルダー実装であり、Phase 2 で Docker 上の Mock Agent に置き換えます。
+> **Note:** `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` が未設定の場合、`bin/socket` は案内を表示して終了します（Slack なしでも Dashboard と Docker Agent Execution は動作します）。Dashboard には認証機能がないため、`127.0.0.1` にバインドしてローカル環境でのみ利用してください。
 
 ## テストと静的解析
 

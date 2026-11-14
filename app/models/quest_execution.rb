@@ -70,6 +70,7 @@ class QuestExecution < ApplicationRecord
       attrs[:cleanup_status] = "pending"
     end
     transition!(from: %w[queued preparing], to: :running, **attrs)
+    notify_slack!("🚀 Running instruction ##{instruction.sequence} for `#{quest.public_id}`...")
   end
 
   def touch_heartbeat!(at: Time.current)
@@ -153,8 +154,32 @@ class QuestExecution < ApplicationRecord
         quest.settle_after_execution!(self)
         true
       end
-      quest.enqueue_processing if finished && quest.queued_instructions?
+      if finished
+        notify_slack_finished!
+        quest.enqueue_processing if quest.queued_instructions?
+      end
       finished
+    end
+
+    def notify_slack_finished!
+      text =
+        if succeeded?
+          summary = result_summary.presence || "Completed."
+          "✅ Instruction ##{instruction.sequence} completed for `#{quest.public_id}`: #{summary}"
+        elsif failed?
+          reason = error_message.presence || error_kind || "unknown error"
+          "⚠️ Instruction ##{instruction.sequence} failed for `#{quest.public_id}` (#{error_kind}): #{reason}"
+        end
+      notify_slack!(text) if text
+    end
+
+    def notify_slack!(text)
+      resource = instruction.external_resource
+      return unless resource&.platform == "slack" && resource.resource_type == "thread"
+
+      SlackNotificationJob.perform_later(resource, text)
+    rescue StandardError => e
+      Rails.error.report(e, context: { execution_id: id })
     end
 
     def instruction_belongs_to_quest

@@ -1,0 +1,20 @@
+#!/usr/bin/env ruby
+require_relative "../config/environment"
+
+$stdout.sync = true
+$stderr.sync = true
+
+bot_token = Omochi::Settings.dig(:slack, :bot_token)
+app_token = Omochi::Settings.dig(:slack, :app_token)
+
+if bot_token.blank? || app_token.blank?
+  puts "[omochi-socket] SLACK_BOT_TOKEN or SLACK_APP_TOKEN is not set; skipping Slack Socket Mode."
+  exit 0
+end
+
+client = Omochi::Slack::SocketClient.new
+trap("INT") { client.stop }
+trap("TERM") { client.stop }
+
+puts "[omochi-socket] Starting Slack Socket Mode client..."
+client.run
