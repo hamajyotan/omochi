@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+# Starts the web process and the Solid Queue worker (bin/jobs).
+# Uses foreman if available; otherwise falls back to the web server only.
+
+if command -v foreman >/dev/null 2>&1; then
+  exec foreman start -f Procfile.dev "$@"
+fi
+
+echo "foreman is not installed. Starting the web server only." >&2
+echo "Run 'bin/jobs' in another terminal, or 'gem install foreman'." >&2
+exec ./bin/rails server -b 127.0.0.1 "$@"

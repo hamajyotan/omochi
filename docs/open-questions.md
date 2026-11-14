@@ -2,18 +2,16 @@
 
 このファイルは、現時点で方針が確定していない事項を管理します。実装上の都合だけで暗黙に決定せず、必要なタイミングで選択肢とトレードオフを整理してください。
 
-## 1. Quest ID
+## 1. Quest ID（決定済み → [ADR 0001](decisions/0001-quest-id-format.md)）
 
-- UUID v4 / UUID v7 / ULID / その他のどれを採用するか。
-- 外部表示用の接頭辞（例: `qst_`）を付けるか。
-- 内部主キーと外部公開 ID の具体的な構成。
+- 内部主キーは整数 `id`、外部公開 ID は `public_id`（`qst_` + UUID v7）として分離済み。
 
-## 2. Quest と Instruction の状態遷移
+## 2. Quest と Instruction の状態遷移（一部決定 → [ADR 0002](decisions/0002-provisional-statuses.md)）
 
-- Quest / Instruction / Execution の最終的な status 一覧。
-- completed / failed / cancelled の Quest に新しい指示が来たときの遷移。
-- Instruction の失敗と Quest の失敗をどう区別するか。
-- ユーザーによるキャンセルと再開の操作方法。
+- 暫定 status 一覧と、`completed` / `failed` の Quest に新しい指示が来たときに `pending` に戻して再開する方針は ADR 0002 で決定済み。
+- 未決：
+  - `cancelled` の Quest に新しい指示が来たときの扱い。
+  - ユーザーによるキャンセルと手動再開の操作方法（Phase 4）。
 
 ## 3. Instruction と Execution の対応
 
@@ -37,13 +35,13 @@
 - CPU / memory / process / timeout の初期上限。
 - Container 内のユーザー、filesystem、capability の設定。
 
-## 6. プロセス構成と SQLite
+## 6. プロセス構成と SQLite（一部決定 → [ADR 0003](decisions/0003-solid-queue-separate-database.md)）
 
-- `omochi-web` / `omochi-socket` / `omochi-worker` をどのように起動・分割するか。
-- Solid Queue の DB をアプリケーション DB と共有するか、分離するか。
-- SQLite の複数プロセス同時アクセスと lock contention の許容範囲。
-- WAL mode 等の SQLite 設定とバックアップ方針。
-- Job enqueue と DB transaction の整合性をどう担保するか。
+- Solid Queue 用 DB をアプリケーション DB から分離し、`ReconcileQuestsJob` で enqueue 漏れを補完する方針は ADR 0003 で決定済み。
+- SQLite の WAL mode、`timeout: 5000`、IMMEDIATE トランザクションは設定済み。
+- 未決：
+  - `omochi-socket` プロセスの起動・監視方法（Phase 3）。
+  - バックアップ方針。
 
 ## 7. Agent SDK / Agent Session
 
@@ -60,13 +58,15 @@
 - 単一 repository の設定方法。
 - GitHub への進捗・結果の反映方法。
 
-## 9. 運用・UI
+## 9. 運用・UI（一部決定 → [ADR 0004](decisions/0004-dotenv-for-development.md)）
 
-- Dashboard の認証方式。
-- ログの保存期間と表示・検索方法。
-- Slack への進捗通知の頻度・粒度。
-- Quest の手動作成・手動再開・キャンセルの UI。
-- バックアップ・復旧手順。
+- Phase 1 では Dashboard 認証を設けず `127.0.0.1` バインド前提とすることは ADR 0004 で決定済み。
+- 未決：
+  - Dashboard の認証方式（Phase 4 以降）。
+  - ログの保存期間と表示・検索方法。
+  - Slack への進捗通知の頻度・粒度。
+  - Quest の手動再開・キャンセルの UI。
+  - バックアップ・復旧手順。
 
 ## 決定事項の記録
 

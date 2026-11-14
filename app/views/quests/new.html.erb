@@ -1,0 +1,25 @@
+<% content_for :title, "New Quest | omochi" %>
+
+<h1>New Quest</h1>
+
+<%= form_with model: @form, url: quests_path, class: "form" do |f| %>
+  <% if @form.errors.any? %>
+    <ul class="errors">
+      <% @form.errors.full_messages.each do |message| %>
+        <li><%= message %></li>
+      <% end %>
+    </ul>
+  <% end %>
+
+  <div class="field">
+    <%= f.label :title %>
+    <%= f.text_field :title, maxlength: 200, required: true %>
+  </div>
+
+  <div class="field">
+    <%= f.label :body, "Instruction" %>
+    <%= f.text_area :body, rows: 6, required: true %>
+  </div>
+
+  <%= f.submit "Create Quest" %>
+<% end %>

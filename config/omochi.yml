@@ -1,0 +1,8 @@
+# omochi application settings. Values come from environment variables
+# (see .env.example). Never write secret values in this file.
+shared:
+  slack:
+    # Used from Phase 3 (Slack Socket Mode). Host-side only: never passed to
+    # Agent Containers.
+    bot_token: <%= ENV["SLACK_BOT_TOKEN"] %>
+    app_token: <%= ENV["SLACK_APP_TOKEN"] %>

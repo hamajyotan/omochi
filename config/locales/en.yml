@@ -1,0 +1,4 @@
+en:
+  time:
+    formats:
+      omochi: "%Y-%m-%d %H:%M:%S"

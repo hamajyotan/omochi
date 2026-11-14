@@ -1,0 +1,28 @@
+<% content_for :title, "Quests | omochi" %>
+
+<h1>Quests</h1>
+
+<% if @quests.empty? %>
+  <p class="empty">Quest はまだありません。<%= link_to "新しい Quest を作成", new_quest_path %></p>
+<% else %>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Quest ID</th>
+        <th>Title</th>
+        <th>Status</th>
+        <th>Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @quests.each do |quest| %>
+        <tr id="<%= dom_id(quest) %>">
+          <td><%= link_to quest.public_id, quest, class: "mono" %></td>
+          <td><%= quest.title %></td>
+          <td><%= status_badge(quest.status) %></td>
+          <td><%= format_time(quest.updated_at) %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
