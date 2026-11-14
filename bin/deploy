@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# omochi production deployment script.
+# Run by the 'omochi' user either manually or via CI/CD (GitHub Actions).
+
+APP_DIR="${HOME}/omochi"
+ENV_FILE="/var/lib/omochi/.env"
+
+echo "=== [omochi deploy] Starting deployment at $(date -u +"%Y-%m-%dT%H:%M:%SZ") ==="
+
+if [ ! -d "${APP_DIR}" ]; then
+  echo "Error: Application directory ${APP_DIR} does not exist." >&2
+  exit 1
+fi
+
+cd "${APP_DIR}"
+
+# 1. Load environment variables
+if [ -f "${ENV_FILE}" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+else
+  echo "Error: Environment file ${ENV_FILE} not found." >&2
+  exit 1
+fi
+
+# 2. Pull latest changes
+echo "--> Pulling latest changes from git..."
+git fetch origin main
+git reset --hard origin/main
+
+# 3. Ensure mise / ruby shims are in PATH
+export PATH="${HOME}/.local/share/mise/shims:${HOME}/.local/bin:${PATH}"
+
+# 4. Install production dependencies
+echo "--> Installing dependencies..."
+bundle config set --local deployment 'true'
+bundle config set --local without 'development test'
+bundle install --quiet
+
+# 5. Database migrations
+echo "--> Running database migrations..."
+bin/rails db:prepare RAILS_ENV=production
+
+# 6. Precompile assets
+echo "--> Precompiling assets..."
+bin/rails assets:precompile RAILS_ENV=production
+
+# 7. Restart systemd user services
+echo "--> Restarting user services..."
+systemctl --user daemon-reload
+systemctl --user restart omochi-web omochi-worker omochi-socket
+
+# 8. Check health
+echo "--> Checking service status..."
+sleep 2
+systemctl --user is-active --quiet omochi-web || {
+  echo "Warning: omochi-web is not active. Checking logs..." >&2
+  journalctl --user -u omochi-web -n 30 --no-pager
+  exit 1
+}
+
+echo "=== [omochi deploy] Successfully deployed! ==="

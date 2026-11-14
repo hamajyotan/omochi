@@ -3,6 +3,7 @@
 - **対象環境**: KAGOYA CLOUD VPS (Ubuntu 24.04 LTS, 4GB)
 - **IP アドレス**: `133.18.115.252`
 - **公開ドメイン**: `https://omochi.ummm.info`
+- **プロセス管理**: Systemd User Services (`systemctl --user`)
 
 ---
 
@@ -28,11 +29,14 @@ curl -fsSL https://get.docker.com | sh
 systemctl enable --now docker
 ```
 
-### 実行ユーザー `omochi` の作成 & ディレクトリ準備
+### 実行ユーザー `omochi` の作成 & linger（ユーザー常駐）有効化
 ```bash
 # ユーザー作成 & docker グループ追加
 adduser --disabled-password --gecos "" omochi
 usermod -aG docker omochi
+
+# ユーザーサービス（systemctl --user）をログアウト後も常駐させる設定
+loginctl enable-linger omochi
 
 # データ永続化ディレクトリの作成
 mkdir -p /var/lib/omochi/storage /var/lib/omochi/workspaces
@@ -45,6 +49,13 @@ chown -R omochi:omochi /var/lib/omochi
 
 ```bash
 su - omochi
+```
+
+### Deploy Key の生成（プライベートリポジトリから clone する場合）
+```bash
+ssh-keygen -t ed25519 -C "omochi-vps-deploy-key" -f ~/.ssh/id_ed25519 -N ""
+cat ~/.ssh/id_ed25519.pub
+# 出力された公開鍵を GitHub の Repository Settings > Deploy keys に Read-only で登録
 ```
 
 ### Ruby 4.0.6 のインストール（mise を使用）
@@ -66,13 +77,12 @@ ruby -v  # ruby 4.0.6 が表示されることを確認
 docker pull ruby:4.0
 ```
 
-### ソースコードの配置
+### ソースコードの配置 & 依存関係の導入
 ```bash
 cd ~
-git clone https://github.com/hamajyotan/omochi.git  # または該当のリポジトリURL
+git clone git@github.com:hamajyotan/omochi.git
 cd omochi
 
-# 依存 gem のインストール
 bundle config set --local deployment 'true'
 bundle config set --local without 'development test'
 bundle install
@@ -102,8 +112,28 @@ ln -s /var/lib/omochi/.env ~/omochi/.env
 
 ### データベース準備 & アセットコンパイル
 ```bash
-bin/rails db:prepare RAILS_ENV=production
-bin/rails assets:precompile RAILS_ENV=production
+set -a; source /var/lib/omochi/.env; set +a
+bin/rails db:prepare
+bin/rails assets:precompile
+```
+
+---
+
+## 3. Systemd ユーザーサービスの設定（omochi ユーザーで作業）
+
+root 権限不要の `systemctl --user` でプロセスを常駐化します。
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp ~/omochi/config/deploy/systemd/user/*.service ~/.config/systemd/user/
+
+systemctl --user daemon-reload
+systemctl --user enable --now omochi-web omochi-worker omochi-socket
+```
+
+サービスの状態を確認：
+```bash
+systemctl --user status omochi-web omochi-worker omochi-socket
 ```
 
 一旦 `exit` して `root` ユーザーに戻ります。
@@ -113,32 +143,9 @@ exit
 
 ---
 
-## 3. Systemd サービスの設定（root で作業）
-
-リポジトリ内の systemd テンプレートを配置します。
-
-```bash
-cd /home/omochi/omochi/config/deploy/systemd
-
-cp omochi-web.service /etc/systemd/system/
-cp omochi-worker.service /etc/systemd/system/
-cp omochi-socket.service /etc/systemd/system/
-
-systemctl daemon-reload
-systemctl enable --now omochi-web omochi-worker omochi-socket
-```
-
-サービスの状態を確認：
-```bash
-systemctl status omochi-web omochi-worker omochi-socket
-```
-
----
-
 ## 4. Nginx（リバースプロキシ・Basic認証・SSL）の設定（root で作業）
 
 ### Basic 認証ユーザーの作成
-ブラウザからの不正アクセスを防ぐため、ユーザー名（例: `admin`）とパスワードを設定します。
 ```bash
 htpasswd -c /etc/nginx/.htpasswd admin
 # パスワードを入力
@@ -177,14 +184,16 @@ nginx -t && systemctl reload nginx
 ```bash
 certbot --nginx -d omochi.ummm.info
 ```
-（プロンプトに従いメールアドレスを入力し、HTTPS へのリダイレクトを有効にします）
 
 ---
 
-## 5. 公開確認
+## 5. 以後のデプロイ（手動または自動）
 
-ブラウザから `https://omochi.ummm.info` にアクセスし、
-1. Basic 認証ダイアログが表示されること
-2. 認証後、omochi の Dashboard が正常に表示されること
-3. 「New Quest」から新しい Quest を作成し、Mock Agent による実行が完了すること
-を確認してください。
+### 手動デプロイ（omochi ユーザーで実行）
+```bash
+~/omochi/bin/deploy
+```
+
+### GitHub Actions による自動デプロイ
+`main` ブランチに push すると自動的にテストが実行され、合格後に VPS へデプロイされます。
+設定手順の詳細は [migration-to-user-systemd.md](migration-to-user-systemd.md) の Step 4 を参照してください。

@@ -1,0 +1,15 @@
+[Unit]
+Description=omochi Solid Queue Worker (User Service)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/omochi
+Environment=RAILS_ENV=production
+EnvironmentFile=/var/lib/omochi/.env
+ExecStart=%h/.local/share/mise/shims/bundle exec bin/jobs
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,48 @@
+name: Test and Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Run Tests & Linters
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0.6'
+          bundler-cache: true
+
+      - name: Set up Database & Run Tests
+        env:
+          RAILS_ENV: test
+        run: |
+          bin/rails db:prepare
+          bin/rails test
+
+      - name: Run RuboCop
+        run: bin/rubocop --parallel
+
+      - name: Run Brakeman
+        run: bin/brakeman --no-pager -q
+
+  deploy:
+    name: Deploy to KAGOYA VPS
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER || 'omochi' }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            ~/omochi/bin/deploy
