@@ -28,6 +28,9 @@ gem "solid_cable"
 # WebSocket client protocol for Slack Socket Mode
 gem "websocket", "~> 1.2"
 
+# Form object pattern for composing ActiveRecord models
+gem "active_record_compose"
+
 # Reduces boot times through caching; required in config/boot.rb
 gem "bootsnap", require: false
 

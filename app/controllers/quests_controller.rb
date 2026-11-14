@@ -19,9 +19,8 @@ class QuestsController < ApplicationController
   def create
     @form = QuestForm.new(quest_form_params)
 
-    if @form.valid?
-      instruction = Quest.start!(title: @form.title, body: @form.body, source_platform: "dashboard")
-      redirect_to instruction.quest, notice: "Quest を作成しました。"
+    if @form.save
+      redirect_to @form.quest, notice: "Quest を作成しました。"
     else
       render :new, status: :unprocessable_content
     end
