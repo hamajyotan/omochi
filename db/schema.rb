@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_14_035804) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_14_041247) do
   create_table "external_resources", force: :cascade do |t|
     t.integer "quest_id", null: false
     t.string "platform", null: false
@@ -24,6 +24,19 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_14_035804) do
     t.index ["quest_id"], name: "index_external_resources_on_quest_id"
   end
 
+  create_table "quest_execution_events", force: :cascade do |t|
+    t.integer "quest_execution_id", null: false
+    t.integer "sequence", null: false
+    t.string "event_type", null: false
+    t.text "message"
+    t.json "payload", default: {}, null: false
+    t.datetime "occurred_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["quest_execution_id", "sequence"], name: "index_quest_execution_events_on_execution_and_sequence", unique: true
+    t.index ["quest_execution_id"], name: "index_quest_execution_events_on_quest_execution_id"
+  end
+
   create_table "quest_executions", force: :cascade do |t|
     t.integer "quest_id", null: false
     t.integer "quest_instruction_id", null: false
@@ -35,6 +48,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_14_035804) do
     t.text "result_summary"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "container_id"
+    t.string "workspace_path"
+    t.integer "exit_code"
+    t.datetime "heartbeat_at"
+    t.string "cleanup_status", default: "not_needed", null: false
+    t.index ["cleanup_status"], name: "index_quest_executions_on_cleanup_status"
     t.index ["quest_id"], name: "index_quest_executions_on_active_quest", unique: true, where: "status IN ('queued', 'preparing', 'running')"
     t.index ["quest_id"], name: "index_quest_executions_on_quest_id"
     t.index ["quest_instruction_id"], name: "index_quest_executions_on_quest_instruction_id"
@@ -69,6 +88,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_14_035804) do
   end
 
   add_foreign_key "external_resources", "quests"
+  add_foreign_key "quest_execution_events", "quest_executions"
   add_foreign_key "quest_executions", "quest_instructions"
   add_foreign_key "quest_executions", "quests"
   add_foreign_key "quest_instructions", "external_resources"

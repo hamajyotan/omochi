@@ -6,7 +6,7 @@ class QuestsController < ApplicationController
   def show
     @quest = Quest.find_by_public_id!(params[:id])
     @instructions = @quest.instructions.includes(:external_resource)
-    @executions = @quest.executions.includes(:instruction)
+    @executions = @quest.executions.includes(:instruction, :events)
     @external_resources = @quest.external_resources.order(:id)
     @new_instruction = @quest.instructions.build
   end

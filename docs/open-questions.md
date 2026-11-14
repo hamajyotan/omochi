@@ -27,17 +27,15 @@
 - Thread 以外の DM / channel message を対象にするか。
 - Slack Event の ACK と DB 永続化の順序。
 
-## 5. Docker 実行環境
+## 5. Docker 実行環境（決定済み → [ADR 0005](decisions/0005-docker-execution-isolation-and-workspace.md)）
 
-- Container を Quest 単位で再利用するか、Execution ごとに作成するか。
-- workspace の永続化と cleanup の単位。
-- Container の network access をどこまで許可するか。
-- CPU / memory / process / timeout の初期上限。
-- Container 内のユーザー、filesystem、capability の設定。
+- Execution ごとの Container 作成・削除、Quest 単位 workspace、セキュリティ・リソース上限、JSONL イベントプロトコル、heartbeat / cleanup 再試行は ADR 0005 で決定済み。
+- 未決：
+  - 完了から長期間経過した Quest workspace ディレクトリのアーカイブ・削除ポリシー（運用フェーズで検討）。
 
 ## 6. プロセス構成と SQLite（一部決定 → [ADR 0003](decisions/0003-solid-queue-separate-database.md)）
 
-- Solid Queue 用 DB をアプリケーション DB から分離し、`ReconcileQuestsJob` で enqueue 漏れを補完する方針は ADR 0003 で決定済み。
+- Solid Queue 用 DB をアプリケーション DB から分離し、`ReconcileQuestsJob` で enqueue 漏れ・heartbeat 期限切れ・Container cleanup 再試行を補完する方針は ADR 0003 / ADR 0005 で決定済み。
 - SQLite の WAL mode、`timeout: 5000`、IMMEDIATE トランザクションは設定済み。
 - 未決：
   - `omochi-socket` プロセスの起動・監視方法（Phase 3）。
@@ -47,7 +45,7 @@
 
 - Claude / Codex / その他のどの SDK / CLI を採用するか。
 - Session の永続化・再開・破棄をどう扱うか。
-- Agent event の標準化方法。
+- Agent event の標準化方法（Mock Agent 用の JSONL は ADR 0005 で定義済み）。
 - 外部サービス操作を broker / MCP のどちらで提供するか。
 
 ## 8. GitHub 連携

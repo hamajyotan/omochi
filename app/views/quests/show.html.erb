@@ -60,14 +60,35 @@
   <% else %>
     <table class="table">
       <thead>
-        <tr><th>ID</th><th>Instruction</th><th>Status</th><th>Started</th><th>Duration</th><th>Result / Error</th></tr>
+        <tr>
+          <th>ID</th>
+          <th>Instruction</th>
+          <th>Status</th>
+          <th>Container / Cleanup</th>
+          <th>Started</th>
+          <th>Duration</th>
+          <th>Result / Error</th>
+        </tr>
       </thead>
       <tbody>
         <% @executions.each do |execution| %>
           <tr id="<%= dom_id(execution) %>">
             <td><%= execution.id %></td>
             <td>#<%= execution.instruction.sequence %></td>
-            <td><%= status_badge(execution.status) %></td>
+            <td>
+              <%= status_badge(execution.status) %>
+              <% if execution.exit_code %>
+                <span class="mono">(exit <%= execution.exit_code %>)</span>
+              <% end %>
+            </td>
+            <td class="mono">
+              <% if execution.container_id.present? %>
+                <%= execution.container_id.truncate(16, omission: "…") %>
+                / <%= execution.cleanup_status %>
+              <% else %>
+                —
+              <% end %>
+            </td>
             <td><%= format_time(execution.started_at) %></td>
             <td><%= format_duration(execution.duration) %></td>
             <td class="pre">
@@ -75,6 +96,19 @@
                 <strong><%= execution.error_kind %></strong> <%= execution.error_message %>
               <% else %>
                 <%= execution.result_summary %>
+              <% end %>
+              <% if execution.events.any? %>
+                <details class="execution-events">
+                  <summary>Events (<%= execution.events.size %>)</summary>
+                  <ul>
+                    <% execution.events.each do |event| %>
+                      <li id="<%= dom_id(event) %>">
+                        <span class="mono">#<%= event.sequence %> [<%= event.event_type %>]</span>
+                        <%= event.message %>
+                      </li>
+                    <% end %>
+                  </ul>
+                </details>
               <% end %>
             </td>
           </tr>

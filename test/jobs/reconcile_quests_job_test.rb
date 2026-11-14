@@ -15,4 +15,21 @@ class ReconcileQuestsJobTest < ActiveJob::TestCase
     assert_enqueued_jobs 1, only: QuestProcessingJob
     assert_enqueued_with(job: QuestProcessingJob, args: [ stranded ])
   end
+
+  test "marks stale active executions as worker_lost and retries failed container cleanups" do
+    quest = start_quest
+    stale = quest.claim_next_instruction!
+    stale.mark_running!(container_id: "stale_ctr_1")
+    stale.update_columns(heartbeat_at: 10.minutes.ago, updated_at: 10.minutes.ago)
+    clear_enqueued_jobs
+
+    ReconcileQuestsJob.perform_now
+
+    stale.reload
+    assert stale.failed?
+    assert_equal "worker_lost", stale.error_kind
+    assert_equal "completed", stale.cleanup_status
+    assert_includes @fake_docker_client.removed_containers, "stale_ctr_1"
+    assert quest.reload.failed?
+  end
 end

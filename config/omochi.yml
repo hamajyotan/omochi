@@ -6,3 +6,15 @@ shared:
     # Agent Containers.
     bot_token: <%= ENV["SLACK_BOT_TOKEN"] %>
     app_token: <%= ENV["SLACK_APP_TOKEN"] %>
+  docker:
+    image: <%= ENV.fetch("OMOCHI_AGENT_IMAGE", "ruby:4.0") %>
+    memory: <%= ENV.fetch("OMOCHI_AGENT_MEMORY", "512m") %>
+    cpus: <%= ENV.fetch("OMOCHI_AGENT_CPUS", "1.0") %>
+    pids_limit: <%= ENV.fetch("OMOCHI_AGENT_PIDS_LIMIT", "128").to_i %>
+    timeout_seconds: <%= ENV.fetch("OMOCHI_AGENT_TIMEOUT_SECONDS", "120").to_i %>
+    heartbeat_timeout_seconds: <%= ENV.fetch("OMOCHI_AGENT_HEARTBEAT_TIMEOUT_SECONDS", "90").to_i %>
+    workspaces_dir: <%= ENV.fetch("OMOCHI_WORKSPACES_DIR", "storage/workspaces") %>
+
+test:
+  docker:
+    workspaces_dir: "tmp/storage/test_workspaces"

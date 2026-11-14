@@ -8,7 +8,7 @@ class QuestProcessingJobTest < ActiveJob::TestCase
     end
   end
 
-  test "processes all queued instructions sequentially with the placeholder runner" do
+  test "processes all queued instructions sequentially with the Docker runner" do
     quest = start_quest(body: "first")
     quest.receive_instruction!(body: "second", source_platform: "dashboard")
 
@@ -17,7 +17,7 @@ class QuestProcessingJobTest < ActiveJob::TestCase
     assert quest.reload.completed?
     assert_equal 2, quest.executions.count
     assert quest.executions.all?(&:succeeded?)
-    assert_equal QuestExecution::PlaceholderRunner::SUMMARY, quest.executions.first.result_summary
+    assert_includes quest.executions.first.result_summary, "first"
     assert_equal %w[processed processed], quest.instructions.pluck(:status)
   end
 
@@ -41,6 +41,6 @@ class QuestProcessingJobTest < ActiveJob::TestCase
     assert_includes execution.error_message, "container exploded"
     assert quest.reload.failed?
   ensure
-    QuestExecution.runner = "QuestExecution::PlaceholderRunner"
+    QuestExecution.runner = "QuestExecution::DockerRunner"
   end
 end
