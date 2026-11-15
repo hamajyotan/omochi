@@ -204,6 +204,31 @@ class QuestExecution < ApplicationRecord
           "⚠️ Instruction ##{instruction.sequence} failed for `#{quest.public_id}` (#{error_kind}): #{reason}"
         end
       notify_slack!(text) if text
+      notify_github_finished!
+    end
+
+    def notify_github_finished!
+      resource = instruction.external_resource
+      return unless resource&.platform == "github"
+
+      body =
+        if succeeded?
+          summary = result_summary.presence || "Review completed."
+          "### 🍡 omochi review result (Instruction ##{instruction.sequence})
+
+#{summary}"
+        elsif failed?
+          reason = error_message.presence || error_kind || "unknown error"
+          "### ⚠️ omochi execution failed (Instruction ##{instruction.sequence})
+
+**Error (#{error_kind}):** #{reason}"
+        end
+
+      return unless body
+
+      GitHubNotificationJob.perform_later(resource, body)
+    rescue StandardError => e
+      Rails.error.report(e, context: { execution_id: id })
     end
 
     def notify_slack!(text)

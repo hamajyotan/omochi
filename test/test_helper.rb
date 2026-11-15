@@ -16,6 +16,9 @@ module ActiveSupport
 
       @fake_slack_client = Omochi::Slack::FakeWebClient.new
       Omochi::Slack.web_client_factory = -> { @fake_slack_client }
+
+      @fake_github_client = Omochi::GitHub::FakeAppClient.new
+      Omochi::GitHub.app_client_factory = -> { @fake_github_client }
     end
 
     # Creates a Quest with one queued instruction through the public domain API.

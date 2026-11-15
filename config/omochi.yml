@@ -6,6 +6,13 @@ shared:
     # Agent Containers.
     bot_token: <%= ENV["SLACK_BOT_TOKEN"] %>
     app_token: <%= ENV["SLACK_APP_TOKEN"] %>
+  github:
+    # Used from Phase 5 (GitHub App & Webhook). Host-side only: never passed to
+    # Agent Containers.
+    app_id: <%= ENV["GITHUB_APP_ID"] %>
+    app_slug: <%= ENV.fetch("GITHUB_APP_SLUG", "omochi") %>
+    webhook_secret: <%= ENV["GITHUB_WEBHOOK_SECRET"] %>
+    private_key: <%= ENV["GITHUB_PRIVATE_KEY"] %>
   docker:
     image: <%= ENV.fetch("OMOCHI_AGENT_IMAGE", "ruby:4.0") %>
     memory: <%= ENV.fetch("OMOCHI_AGENT_MEMORY", "512m") %>

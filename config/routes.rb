@@ -16,5 +16,9 @@ Rails.application.routes.draw do
     end
   end
 
+  namespace :webhooks do
+    post "github" => "github#create"
+  end
+
   root "quests#index"
 end

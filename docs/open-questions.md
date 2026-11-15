@@ -34,13 +34,12 @@
 - Session の永続化・再開・破棄をどう扱うか。
 - 外部サービス操作を broker / MCP のどちらで提供するか。
 
-## 8. GitHub 連携（Phase 5 で決定）
+## 8. GitHub 連携（決定済み → [ADR 0009](decisions/0009-github-app-pr-review-and-issue-integration.md)）
 
-- GitHub App / fine-grained PAT 等の認証方式。
-- Webhook の対象イベント。
-- Issue / PR Description marker の形式と更新規則。
-- 単一 repository の設定方法。
-- GitHub への進捗・結果の反映方法。
+- GitHub App 認証（RS256 JWT & Installation Token）、HMAC-SHA256 Webhook 検証、`review_requested` による PR レビュー起動、および PR Review API による結果返信は ADR 0009 で決定済み。
+- 未決（将来拡張）：
+  - 複数 repository への対応。
+  - PR インラインコメント（ファイル・行単位の指摘）のサポート。
 
 ## 9. 運用・UI（MVP 範囲は決定済み → [ADR 0004](decisions/0004-dotenv-for-development.md), [ADR 0006](decisions/0006-slack-socket-mode-and-notifications.md), [ADR 0007](decisions/0007-quest-cancel-reopen-and-retry.md)）
 
