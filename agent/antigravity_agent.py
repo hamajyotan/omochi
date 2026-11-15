@@ -11,6 +11,7 @@ Responsibilities:
 """
 import asyncio
 import json
+import logging
 import os
 import sys
 from datetime import datetime, timezone
@@ -45,12 +46,78 @@ def emit(event_type: str, message: str = "", **extra):
     sys.stdout.flush()
 
 
+class StepErrorHandler(logging.Handler):
+    """Detects fatal step errors logged by google-antigravity so step_queue.get() does not hang."""
+
+    def __init__(self):
+        super().__init__()
+        self.last_error: str | None = None
+        self.error_event: asyncio.Event | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def reset(self, loop: asyncio.AbstractEventLoop):
+        self.last_error = None
+        self.error_event = asyncio.Event()
+        self._loop = loop
+
+    def emit(self, record: logging.LogRecord):
+        msg = self.format(record)
+        if "Agent execution terminated due to error" in msg or "System step error" in msg:
+            self.last_error = msg
+            if self.error_event and self._loop:
+                self._loop.call_soon_threadsafe(self.error_event.set)
+
+
 async def heartbeat_worker(interval: float = 15.0):
     count = 1
     while True:
         await asyncio.sleep(interval)
         emit("progress", message=f"Antigravity Agent is reasoning and processing ({count * int(interval)}s elapsed)...")
         count += 1
+
+
+async def resolve_response_text(response, step_error_handler: StepErrorHandler, timeout: float = 180.0) -> str:
+    """Resolves the full text from ChatResponse while watching for silent step termination errors."""
+    text_attr = getattr(response, "text", None)
+    if callable(text_attr):
+        coro = text_attr()
+    else:
+        async def _stream():
+            chunks = []
+            async for token in response:
+                chunks.append(str(token))
+            return "".join(chunks)
+        coro = _stream()
+
+    text_task = asyncio.create_task(coro)
+    err_task = asyncio.create_task(step_error_handler.error_event.wait())
+    try:
+        done, pending = await asyncio.wait(
+            [text_task, err_task],
+            timeout=timeout,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except BaseException:
+                pass
+
+        if err_task in done:
+            raise RuntimeError(step_error_handler.last_error or "Agent step terminated due to error")
+        if text_task in done:
+            return str(text_task.result() or "").strip()
+
+        raise TimeoutError(f"Timed out waiting for Antigravity response after {int(timeout)}s")
+    finally:
+        for task in (text_task, err_task):
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except BaseException:
+                    pass
 
 
 async def main():
@@ -108,72 +175,52 @@ async def main():
 
         emit("progress", message="Antigravity Agent initialized with workspace capabilities.")
 
-        async with Agent(config) as agent:
-            emit("progress", message=f"Analyzing instruction #{sequence} with Antigravity...")
-            heartbeat_task = asyncio.create_task(heartbeat_worker(15.0))
-            response = None
-            max_retries = 3
-            try:
-                for attempt in range(1, max_retries + 1):
-                    try:
+        step_error_handler = StepErrorHandler()
+        logging.getLogger().addHandler(step_error_handler)
+        loop = asyncio.get_running_loop()
+
+        summary = ""
+        max_retries = 3
+        heartbeat_task = asyncio.create_task(heartbeat_worker(15.0))
+        try:
+            for attempt in range(1, max_retries + 1):
+                step_error_handler.reset(loop)
+                try:
+                    async with Agent(config) as agent:
+                        emit("progress", message=f"Analyzing instruction #{sequence} with Antigravity (attempt {attempt}/{max_retries})...")
                         response = await agent.chat(body)
+                        summary = await resolve_response_text(response, step_error_handler, timeout=180.0)
                         break
-                    except Exception as e:
-                        err_str = str(e)
-                        is_retryable = any(code in err_str for code in ["503", "429", "UNAVAILABLE", "high demand", "retryable"])
-                        if is_retryable and attempt < max_retries:
-                            backoff = attempt * 5
-                            emit("log", message=f"Model provider returned retryable error ({err_str}). Retrying in {backoff}s (attempt {attempt}/{max_retries})...")
-                            await asyncio.sleep(backoff)
-                        else:
-                            raise
-            finally:
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    pass
-
-            emit("progress", message="Received response from Antigravity, formatting summary...")
-
-            # Inspect response object for debugging
-            response_attrs = [m for m in dir(response) if not m.startswith("_")]
-            emit("log", message=f"Antigravity response type: {type(response).__name__}, attributes: {response_attrs}")
-
-            summary = ""
-            if hasattr(response, "text"):
-                try:
-                    text_val = getattr(response, "text")
-                    if callable(text_val):
-                        res = text_val()
-                        if asyncio.iscoroutine(res):
-                            res = await asyncio.wait_for(res, timeout=10.0)
-                        summary = str(res).strip()
+                except Exception as e:
+                    err_str = str(e)
+                    is_retryable = any(
+                        code in err_str
+                        for code in ["503", "429", "UNAVAILABLE", "high demand", "retryable", "terminated due to error"]
+                    )
+                    if is_retryable and attempt < max_retries:
+                        backoff = attempt * 5
+                        emit(
+                            "progress",
+                            message=f"Model provider temporary error (HTTP 503/429). Retrying in {backoff}s (attempt {attempt}/{max_retries})...",
+                        )
+                        await asyncio.sleep(backoff)
                     else:
-                        summary = str(text_val).strip()
-                except Exception as e:
-                    emit("log", message=f"Could not read response.text: {e}")
+                        raise
+        finally:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except BaseException:
+                pass
+            logging.getLogger().removeHandler(step_error_handler)
 
-            if not summary:
-                tokens = []
-                try:
-                    async def stream_tokens():
-                        async for token in response:
-                            tokens.append(str(token))
+        summary = summary.strip()
+        if not summary:
+            summary = f"Antigravity Agent completed instruction #{sequence}."
 
-                    await asyncio.wait_for(stream_tokens(), timeout=30.0)
-                    summary = "".join(tokens).strip()
-                except Exception as e:
-                    emit("log", message=f"Token stream fallback: {e}")
-                    summary = "".join(tokens).strip()
-
-            summary = summary.strip()
-            if not summary:
-                summary = f"Antigravity Agent completed instruction #{sequence}."
-
-            emit("result", summary=summary, message=summary)
-            emit("completed", message=summary, summary=summary)
-            sys.exit(0)
+        emit("result", summary=summary, message=summary)
+        emit("completed", message=summary, summary=summary)
+        sys.exit(0)
 
     except ImportError:
         emit("failed", message="google-antigravity package is not installed in the container environment.")
