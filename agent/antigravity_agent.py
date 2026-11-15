@@ -111,8 +111,22 @@ async def main():
         async with Agent(config) as agent:
             emit("progress", message=f"Analyzing instruction #{sequence} with Antigravity...")
             heartbeat_task = asyncio.create_task(heartbeat_worker(15.0))
+            response = None
+            max_retries = 3
             try:
-                response = await agent.chat(body)
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        response = await agent.chat(body)
+                        break
+                    except Exception as e:
+                        err_str = str(e)
+                        is_retryable = any(code in err_str for code in ["503", "429", "UNAVAILABLE", "high demand", "retryable"])
+                        if is_retryable and attempt < max_retries:
+                            backoff = attempt * 5
+                            emit("log", message=f"Model provider returned retryable error ({err_str}). Retrying in {backoff}s (attempt {attempt}/{max_retries})...")
+                            await asyncio.sleep(backoff)
+                        else:
+                            raise
             finally:
                 heartbeat_task.cancel()
                 try:
@@ -127,44 +141,38 @@ async def main():
             emit("log", message=f"Antigravity response type: {type(response).__name__}, attributes: {response_attrs}")
 
             summary = ""
-            tokens = []
-            try:
-                # Primary official pattern from Antigravity SDK: async for token in response
-                async def stream_tokens():
-                    async for token in response:
-                        tokens.append(str(token))
-
-                await asyncio.wait_for(stream_tokens(), timeout=90.0)
-                summary = "".join(tokens).strip()
-            except TypeError:
-                # If response is not an async iterable, check text or content properties
-                emit("log", message="Response is not an async iterable, checking text/content properties...")
-                if hasattr(response, "text"):
+            if hasattr(response, "text"):
+                try:
                     text_val = getattr(response, "text")
                     if callable(text_val):
                         res = text_val()
                         if asyncio.iscoroutine(res):
-                            res = await asyncio.wait_for(res, timeout=30.0)
-                        summary = str(res)
+                            res = await asyncio.wait_for(res, timeout=10.0)
+                        summary = str(res).strip()
                     else:
-                        summary = str(text_val)
-                elif hasattr(response, "content"):
-                    summary = str(response.content)
-                else:
-                    summary = str(response)
-            except asyncio.TimeoutError:
-                emit("log", message="Token stream collection timed out after 90s, using collected tokens.")
-                summary = "".join(tokens).strip()
-            except Exception as e:
-                emit("log", message=f"Error reading response tokens: {e}")
-                summary = "".join(tokens).strip()
+                        summary = str(text_val).strip()
+                except Exception as e:
+                    emit("log", message=f"Could not read response.text: {e}")
+
+            if not summary:
+                tokens = []
+                try:
+                    async def stream_tokens():
+                        async for token in response:
+                            tokens.append(str(token))
+
+                    await asyncio.wait_for(stream_tokens(), timeout=30.0)
+                    summary = "".join(tokens).strip()
+                except Exception as e:
+                    emit("log", message=f"Token stream fallback: {e}")
+                    summary = "".join(tokens).strip()
 
             summary = summary.strip()
             if not summary:
                 summary = f"Antigravity Agent completed instruction #{sequence}."
 
-            emit("result", summary=summary)
-            emit("completed", message="Antigravity Agent execution completed successfully.")
+            emit("result", summary=summary, message=summary)
+            emit("completed", message=summary, summary=summary)
             sys.exit(0)
 
     except ImportError:

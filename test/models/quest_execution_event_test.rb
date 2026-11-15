@@ -14,6 +14,10 @@ class QuestExecutionEventTest < ActiveSupport::TestCase
     assert_equal "progress", parsed[:event_type]
     assert_equal "Step 1", parsed[:message]
     assert_equal({ "data" => { "step" => 1 } }, parsed[:payload])
+
+    result_event = QuestExecutionEvent.parse_line('{"type":"result","summary":"Final output"}')
+    assert_equal "result", result_event[:event_type]
+    assert_equal "Final output", result_event[:message]
   end
 
   test "extracts summary or error when message is omitted" do

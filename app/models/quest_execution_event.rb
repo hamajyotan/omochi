@@ -4,7 +4,7 @@
 # stderr lines are safely wrapped as `log` events so output is never silently
 # lost.
 class QuestExecutionEvent < ApplicationRecord
-  EVENT_TYPES = %w[started progress log completed failed].freeze
+  EVENT_TYPES = %w[started progress log result completed failed].freeze
   MAX_LINE_BYTES = 16_384
   MAX_MESSAGE_LENGTH = 4_000
 
