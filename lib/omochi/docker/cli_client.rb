@@ -8,7 +8,7 @@ require "open3"
 module Omochi
   module Docker
     class CliClient
-      CONTAINER_AGENT_PATH = "/opt/omochi/mock_agent.rb".freeze
+      CONTAINER_AGENT_PATH = "/opt/omochi/agent_runner".freeze
       CONTAINER_WORKSPACE_PATH = "/workspace".freeze
 
       def initialize(docker_bin: "docker", capture3: Open3.method(:capture3))
@@ -17,9 +17,9 @@ module Omochi
       end
 
       # Creates an isolated Agent Container and returns its container ID.
-      def create_container(name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, env: {})
+      def create_container(name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, command: nil, network: "none", env: {})
         args = build_create_args(
-          name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, env:
+          name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, command:, network:, env:
         )
 
         stdout, stderr, status = @capture3.call(*args, unsetenv_others: false)
@@ -33,11 +33,12 @@ module Omochi
         raise Error, "docker CLI not found: #{e.message}"
       end
 
-      def build_create_args(name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, env: {})
+      def build_create_args(name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, command: nil, network: "none", env: {})
+        cmd = command.presence || [ "ruby", CONTAINER_AGENT_PATH ]
         args = [
           @docker_bin, "create",
           "--name", name.to_s,
-          "--network", "none",
+          "--network", network.to_s,
           "--read-only",
           "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
           "--cap-drop", "ALL",
@@ -55,7 +56,7 @@ module Omochi
           args.push("--env", "#{key}=#{value}")
         end
 
-        args.push(image.to_s, "ruby", CONTAINER_AGENT_PATH)
+        args.push(image.to_s, *cmd)
         args
       end
 

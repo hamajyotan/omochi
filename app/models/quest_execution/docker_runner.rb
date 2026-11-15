@@ -85,20 +85,36 @@ class QuestExecution::DockerRunner
 
     def create_container!(execution, workspace_path)
       container_name = "omochi-#{execution.quest.public_id}-exec-#{execution.id}"
+      runtime = docker_setting_optional(:agent_runtime) || "mock"
+
+      agent_script_path, command =
+        if runtime == "antigravity"
+          [ Rails.root.join("agent/antigravity_agent.py").to_s, [ "python3", Omochi::Docker::CliClient::CONTAINER_AGENT_PATH ] ]
+        else
+          [ Rails.root.join("agent/mock_agent.rb").to_s, [ "ruby", Omochi::Docker::CliClient::CONTAINER_AGENT_PATH ] ]
+        end
+
+      env = {
+        "OMOCHI_QUEST_ID" => execution.quest.public_id,
+        "OMOCHI_EXECUTION_ID" => execution.id.to_s,
+        "LANG" => "C.UTF-8",
+        "LC_ALL" => "C.UTF-8"
+      }
+      if (api_key = docker_setting_optional(:gemini_api_key))
+        env["GEMINI_API_KEY"] = api_key
+      end
+
       @docker_client.create_container(
         name: container_name,
         image: docker_setting(:image),
         workspace_path: workspace_path.to_s,
-        agent_script_path: Rails.root.join("agent/mock_agent.rb").to_s,
+        agent_script_path: agent_script_path,
+        command: command,
+        network: docker_setting_optional(:network) || "none",
         memory: docker_setting(:memory),
         cpus: docker_setting(:cpus),
         pids_limit: docker_setting(:pids_limit),
-        env: {
-          "OMOCHI_QUEST_ID" => execution.quest.public_id,
-          "OMOCHI_EXECUTION_ID" => execution.id.to_s,
-          "LANG" => "C.UTF-8",
-          "LC_ALL" => "C.UTF-8"
-        }
+        env: env
       )
     end
 
@@ -133,5 +149,9 @@ class QuestExecution::DockerRunner
 
     def docker_setting(key)
       Omochi::Settings.fetch!(:docker, key)
+    end
+
+    def docker_setting_optional(key)
+      Omochi::Settings.dig(:docker, key)
     end
 end

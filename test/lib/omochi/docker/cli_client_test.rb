@@ -32,6 +32,35 @@ class Omochi::Docker::CliClientTest < ActiveSupport::TestCase
     assert_not captured_args.any? { |a| a.to_s.include?("SLACK_") || a.to_s.include?("GITHUB_") || a.to_s.include?("docker.sock") }
   end
 
+  test "builds docker create arguments with custom command and network" do
+    captured_args = nil
+    fake_status = Struct.new(:exitstatus, :success?).new(0, true)
+    fake_capture3 = ->(*args, **_opts) do
+      captured_args = args
+      [ "abc123container\n", "", fake_status ]
+    end
+
+    client = Omochi::Docker::CliClient.new(docker_bin: "docker", capture3: fake_capture3)
+    client.create_container(
+      name: "omochi-antigravity",
+      image: "omochi-agent:antigravity",
+      workspace_path: "/tmp/ws",
+      agent_script_path: "/tmp/antigravity_agent.py",
+      command: [ "python3", "/opt/omochi/agent_runner" ],
+      network: "bridge",
+      memory: "1g",
+      cpus: "1.0",
+      pids_limit: 128,
+      env: { "GEMINI_API_KEY" => "test_key" }
+    )
+
+    assert_includes captured_args, "--network"
+    assert_equal "bridge", captured_args[captured_args.index("--network") + 1]
+    assert_includes captured_args, "omochi-agent:antigravity"
+    assert_includes captured_args, "python3"
+    assert_includes captured_args, "/opt/omochi/agent_runner"
+  end
+
   test "executes mock_agent.rb end-to-end inside a real Docker container" do
     client = Omochi::Docker::CliClient.new
     Dir.mktmpdir("omochi_ws_") do |workspace|

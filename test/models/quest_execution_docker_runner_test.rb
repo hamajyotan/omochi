@@ -53,6 +53,33 @@ class QuestExecutionDockerRunnerTest < ActiveSupport::TestCase
     assert quest.reload.failed?
   end
 
+  test "configures antigravity runtime with python command and gemini api key" do
+    orig_runtime = Rails.configuration.omochi[:docker][:agent_runtime]
+    orig_key = Rails.configuration.omochi[:docker][:gemini_api_key]
+    orig_net = Rails.configuration.omochi[:docker][:network]
+
+    Rails.configuration.omochi[:docker][:agent_runtime] = "antigravity"
+    Rails.configuration.omochi[:docker][:gemini_api_key] = "secret_gemini_key"
+    Rails.configuration.omochi[:docker][:network] = "bridge"
+
+    begin
+      quest = start_quest(body: "Antigravity task")
+      execution = quest.claim_next_instruction!
+
+      QuestExecution::DockerRunner.new(docker_client: @fake_docker_client).run(execution)
+
+      spec = @fake_docker_client.created_containers.sole
+      assert_equal [ "python3", Omochi::Docker::CliClient::CONTAINER_AGENT_PATH ], spec[:command]
+      assert_equal "bridge", spec[:network]
+      assert_equal "secret_gemini_key", spec[:env]["GEMINI_API_KEY"]
+      assert_includes spec[:agent_script_path], "antigravity_agent.py"
+    ensure
+      Rails.configuration.omochi[:docker][:agent_runtime] = orig_runtime
+      Rails.configuration.omochi[:docker][:gemini_api_key] = orig_key
+      Rails.configuration.omochi[:docker][:network] = orig_net
+    end
+  end
+
   test "marks execution as agent_error when exit code is 0 without a completed event" do
     @fake_docker_client.on_run = ->(_cid, **, &block) do
       block.call(%({"type":"started","message":"hi"}\n), "stdout")

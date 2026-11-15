@@ -18,6 +18,9 @@ shared:
     allowed_users: <%= ENV["ALLOWED_GITHUB_USERS"] %>
   docker:
     image: <%= ENV.fetch("OMOCHI_AGENT_IMAGE", "ruby:4.0") %>
+    agent_runtime: <%= ENV.fetch("OMOCHI_AGENT_RUNTIME", "mock") %>
+    network: <%= ENV.fetch("OMOCHI_DOCKER_NETWORK", "none") %>
+    gemini_api_key: <%= ENV["GEMINI_API_KEY"] %>
     memory: <%= ENV.fetch("OMOCHI_AGENT_MEMORY", "512m") %>
     cpus: <%= ENV.fetch("OMOCHI_AGENT_CPUS", "1.0") %>
     pids_limit: <%= ENV.fetch("OMOCHI_AGENT_PIDS_LIMIT", "128").to_i %>
