@@ -3,13 +3,14 @@ module Omochi
   module GitHub
     class FakeAppClient
       attr_reader :reviews, :comments, :created_pull_requests, :tokens_requested
-      attr_accessor :on_create_review, :on_create_comment, :on_create_pull_request, :pull_requests, :pull_request_diffs
+      attr_accessor :on_create_review, :on_create_comment, :on_create_pull_request, :repositories, :pull_requests, :pull_request_diffs
 
       def initialize
         @reviews = []
         @comments = []
         @created_pull_requests = []
         @tokens_requested = []
+        @repositories = {}
         @pull_requests = {}
         @pull_request_diffs = {}
       end
@@ -21,6 +22,13 @@ module Omochi
 
       def installation_id_for(_repository)
         1
+      end
+
+      def fetch_repository(installation_id:, repository:)
+        @repositories[repository.to_s] || {
+          "full_name" => repository.to_s,
+          "default_branch" => "main"
+        }
       end
 
       def create_pull_request(installation_id:, repository:, title:, body:, head:, base: "main")

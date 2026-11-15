@@ -108,6 +108,12 @@ module Omochi
         )
       end
 
+      # Fetches repository metadata (including `default_branch`).
+      def fetch_repository(installation_id:, repository:)
+        token = installation_token(installation_id)
+        get_json("repos/#{repository}", bearer_token: token)
+      end
+
       # Creates a new Pull Request on the repository.
       def create_pull_request(installation_id:, repository:, title:, body:, head:, base: "main")
         token = installation_token(installation_id)

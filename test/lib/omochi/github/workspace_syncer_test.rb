@@ -168,6 +168,57 @@ class Omochi::GitHub::WorkspaceSyncerTest < ActiveSupport::TestCase
     assert_empty @fake_app_client.created_pull_requests
   end
 
+  test "detects example/app repository from instruction text, uses its default_branch (develop), and remembers it for follow-up instructions" do
+    github_config = Rails.configuration.omochi[:github]
+    original_repositories = github_config[:repositories]
+    github_config[:repositories] = "hamajyotan/omochi,example/app"
+
+    @fake_app_client.repositories["example/app"] = {
+      "full_name" => "example/app",
+      "default_branch" => "develop"
+    }
+
+    quest = start_quest(body: "app リポジトリに新しい設定ファイルを追加して PR を出して")
+    execution = quest.claim_next_instruction!
+
+    workspace_dir = File.join(@tmp_root, "workspace_app")
+    syncer = Omochi::GitHub::WorkspaceSyncer.new(
+      app_client: @fake_app_client,
+      remote_url_resolver: ->(_repo) { @remote_repo }
+    )
+
+    context = syncer.sync!(execution, workspace_dir)
+
+    assert_equal "example/app", context["repository"]
+    assert_equal "develop", context["base_ref"]
+
+    # Simulate Agent committing a file
+    File.write(File.join(workspace_dir, "app.yml"), "env: prod\n")
+    system("git", "-C", workspace_dir, "add", "app.yml", exception: true)
+    system("git", "-C", workspace_dir, "commit", "-m", "Add app.yml", out: File::NULL, err: File::NULL, exception: true)
+
+    result = syncer.publish_changes!(
+      execution,
+      workspace_dir,
+      git_context: context,
+      summary: "Added app.yml to app."
+    )
+
+    assert_equal "created_pr", result["action"]
+    pr_req = @fake_app_client.created_pull_requests.sole
+    assert_equal "example/app", pr_req[:repository]
+    assert_equal "develop", pr_req[:base]
+
+    # Follow-up instruction without repeating "app" still targets example/app
+    execution.succeed!(result_summary: "Done")
+    quest.receive_instruction!(body: "テストも追加して", source_platform: "slack", enqueue: false)
+    second_exec = quest.claim_next_instruction!
+    second_context = syncer.sync!(second_exec, workspace_dir)
+    assert_equal "example/app", second_context["repository"]
+  ensure
+    github_config[:repositories] = original_repositories if github_config
+  end
+
   private
     def setup_local_remote_repo(bare_path)
       work_path = File.join(@tmp_root, "seed_work")

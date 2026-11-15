@@ -12,6 +12,7 @@ shared:
     app_id: <%= ENV["GITHUB_APP_ID"] %>
     app_slug: <%= ENV.fetch("GITHUB_APP_SLUG", "omochi") %>
     repository: <%= ENV.fetch("GITHUB_REPOSITORY", "hamajyotan/omochi") %>
+    repositories: <%= ENV.fetch("GITHUB_REPOSITORIES", "hamajyotan/omochi") %>
     webhook_secret: <%= ENV["GITHUB_WEBHOOK_SECRET"] %>
     private_key: <%= ENV["GITHUB_PRIVATE_KEY"] %>
     client_id: <%= ENV["GITHUB_CLIENT_ID"] %>

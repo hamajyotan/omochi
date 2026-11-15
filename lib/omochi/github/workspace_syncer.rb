@@ -47,6 +47,8 @@ module Omochi
           )
         else
           sync_default_branch!(
+            client: client,
+            installation_id: installation_id,
             token: token,
             repository: repository,
             quest_public_id: execution.quest.public_id,
@@ -157,7 +159,85 @@ module Omochi
           gh_resource = github_resource_for(execution)
           return gh_resource.scope_key if gh_resource&.scope_key.present?
 
+          detected = detect_repository_from_quest(execution)
+          if detected.present?
+            remember_quest_repository!(execution.quest, detected)
+            return detected
+          end
+
           Omochi::Settings.dig(:github, :repository).to_s.strip.presence
+        end
+
+        def configured_repositories
+          raw = Omochi::Settings.dig(:github, :repositories).to_s
+          default_repo = Omochi::Settings.dig(:github, :repository).to_s.strip
+          repos = raw.split(",").map(&:strip).reject(&:empty?)
+          repos << default_repo if default_repo.present? && !repos.include?(default_repo)
+          repos
+        end
+
+        def detect_repository_from_quest(execution)
+          candidates = configured_repositories
+          texts = [
+            execution.instruction.body.to_s,
+            *execution.quest.instructions.reorder(sequence: :desc).pluck(:body),
+            execution.quest.title.to_s
+          ]
+
+          texts.each do |text|
+            next if text.blank?
+
+            # 0. Match GitHub PR URL (e.g. "https://github.com/example/app/pull/5")
+            if (pr_match = text.match(%r{https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(\d+)}i))
+              matched_repo = candidates.find { |c| c.casecmp?(pr_match[1]) }
+              if matched_repo
+                remember_quest_pull_request!(execution.quest, matched_repo, pr_match[2])
+                return matched_repo
+              end
+            end
+
+            # 1. Match explicit full name (e.g. "example/app" or GitHub URL)
+            candidates.each do |full_name|
+              return full_name if text.downcase.include?(full_name.downcase)
+            end
+
+            # 2. Match short repo name (e.g. "app") against configured repositories
+            candidates.each do |full_name|
+              short_name = full_name.split("/", 2).last.to_s
+              next if short_name.empty?
+
+              pattern = /(?<![A-Za-z0-9_-])#{Regexp.escape(short_name)}(?![A-Za-z0-9_-])/i
+              return full_name if text.match?(pattern)
+            end
+          end
+
+          nil
+        end
+
+        def remember_quest_pull_request!(quest, repository, pull_number)
+          quest.external_resources.find_or_create_by!(
+            platform: "github",
+            resource_type: "pull_request",
+            scope_key: repository,
+            external_id: pull_number.to_s
+          ) do |res|
+            res.url = "https://github.com/#{repository}/pull/#{pull_number}"
+          end
+        rescue StandardError
+          nil
+        end
+
+        def remember_quest_repository!(quest, repository)
+          quest.external_resources.find_or_create_by!(
+            platform: "github",
+            resource_type: "repository",
+            scope_key: repository,
+            external_id: repository
+          ) do |res|
+            res.url = "https://github.com/#{repository}"
+          end
+        rescue StandardError
+          nil
         end
 
         def pull_request_resource(execution)
@@ -220,7 +300,15 @@ module Omochi
           }
         end
 
-        def sync_default_branch!(token:, repository:, quest_public_id:, workspace_dir:)
+        def sync_default_branch!(client:, installation_id:, token:, repository:, quest_public_id:, workspace_dir:)
+          default_branch =
+            begin
+              repo_data = client.fetch_repository(installation_id: installation_id, repository: repository)
+              repo_data["default_branch"].to_s.strip.presence || "main"
+            rescue StandardError
+              "main"
+            end
+
           ensure_git_repo!(workspace_dir, repository)
           refspec = "+HEAD:refs/remotes/origin/default_head"
           run_authenticated_git(workspace_dir, token, "fetch", "--depth=50", "--no-tags", "origin", refspec)
@@ -236,7 +324,7 @@ module Omochi
             "repository" => repository,
             "mode" => "branch",
             "branch" => branch_name,
-            "base_ref" => "main",
+            "base_ref" => default_branch,
             "start_sha" => start_sha,
             "checked_out" => true
           }
