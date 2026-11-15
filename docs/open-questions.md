@@ -28,11 +28,11 @@
 
 - `bin/rails server`（web）、`bin/jobs`（worker）、`bin/socket`（Slack Socket Mode）の 3 プロセス構成と、Solid Queue DB 分離 + `ReconcileQuestsJob` は決定済み。
 
-## 7. Agent SDK / Agent Session（Phase 6 で決定）
+## 7. Agent SDK / Agent Session（決定済み → Antigravity）
 
-- Claude / Codex / その他のどの SDK / CLI を採用するか。
-- Session の永続化・再開・破棄をどう扱うか。
-- 外部サービス操作を broker / MCP のどちらで提供するか。
+- Agent コアエンジンとして Google Antigravity（Python SDK `google-antigravity`）を採用。
+- 隔離された Docker コンテナ内で Antigravity Agent を実行し、ストリーミングイベント（思考プロセス `thoughts`・ツール実行 `tool_calls`）を omochi の JSONL プロトコルに変換してホストへ伝達する。
+- 外部サービス認証情報（Slack / GitHub）はコンテナへ渡さず、LLM 推論クレデンシャル（API キー等）のみを最小権限で渡す。
 
 ## 8. GitHub 連携（決定済み → [ADR 0009](decisions/0009-github-app-pr-review-and-issue-integration.md)）
 

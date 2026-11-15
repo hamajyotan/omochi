@@ -74,15 +74,15 @@ Mock Agent であっても、ホスト内プロセスとして動かすだけで
 
 完了の目安：Nginx の Basic 認証を撤廃し、許可されたメンバーのみが SSO で安全に Dashboard へログイン・操作できる。
 
-### Phase 7: 実 Agent SDK の統合（MVP 後）
+### Phase 7: Antigravity Agent の統合（MVP 後）
 
-- Claude / Codex / その他候補の評価
-- Agent SDK の Session / resume / event / tool model の確認
-- Agent adapter の実装
-- Mock Agent から実 Agent への置き換え
-- credential broker / MCP 等の外部操作経路の検討
-
-Agent SDK の選定は、ドメインモデルと実行基盤を検証した後に行います。
+- Agent コアエンジンに Google Antigravity（Python SDK `google-antigravity`）を採用
+- Antigravity 実行用 Dockerfile / Agent Container イメージの作成
+- Instruction を Antigravity Agent へ入力し、思考プロセス（`response.thoughts`）やツール実行（`response.tool_calls`）を omochi の JSONL プロトコルへ変換して stdout 出力するアダプターの実装
+- LLM 認証情報（API キー等）の安全なコンテナ注入
+- ワークスペース内での自律ツール実行（ファイル編集・コマンド実行・Git 操作）の検証
+- Mock Agent から Antigravity 実 Agent への切り替え
+- PR レビューや Slack 指示における実 AI レビュー・自律改修の End-to-End 動作確認
 
 ## 3. MVP の End-to-End 完了条件
 
