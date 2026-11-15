@@ -76,13 +76,61 @@ async def heartbeat_worker(interval: float = 15.0):
         count += 1
 
 
-async def resolve_response_text(response, step_error_handler: StepErrorHandler, timeout: float = 90.0) -> str:
-    """Resolves the full text from ChatResponse while streaming tool call progress and watching for step errors."""
-    async def _collect():
-        chunks_attr = getattr(response, "chunks", None)
-        if chunks_attr is not None:
-            text_parts = []
-            async for chunk in chunks_attr:
+async def resolve_response_text(
+    response,
+    step_error_handler: StepErrorHandler,
+    idle_timeout: float = 90.0,
+    total_timeout: float = 240.0,
+) -> str:
+    """Resolves the full text from ChatResponse using an idle timeout that resets on every chunk/tool call."""
+    chunks_attr = getattr(response, "chunks", None)
+    if chunks_attr is None:
+        text_attr = getattr(response, "text", None)
+        if callable(text_attr):
+            return str(await asyncio.wait_for(text_attr(), timeout=idle_timeout) or "").strip()
+        tokens = []
+        async for token in response:
+            tokens.append(str(token))
+        return "".join(tokens).strip()
+
+    text_parts: list[str] = []
+    chunk_iter = chunks_attr.__aiter__()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + total_timeout
+
+    while True:
+        remaining_total = deadline - loop.time()
+        if remaining_total <= 0:
+            if text_parts:
+                return "".join(text_parts).strip()
+            raise TimeoutError(f"Timed out waiting for Antigravity response after {int(total_timeout)}s total")
+
+        step_wait = min(idle_timeout, remaining_total)
+        next_task = asyncio.create_task(chunk_iter.__anext__())
+        err_task = asyncio.create_task(step_error_handler.error_event.wait())
+        try:
+            done, pending = await asyncio.wait(
+                [next_task, err_task],
+                timeout=step_wait,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except BaseException:
+                    pass
+
+            if err_task in done:
+                if text_parts:
+                    return "".join(text_parts).strip()
+                raise RuntimeError(step_error_handler.last_error or "Agent step terminated due to error")
+
+            if next_task in done:
+                try:
+                    chunk = next_task.result()
+                except StopAsyncIteration:
+                    break
                 cls_name = type(chunk).__name__
                 if cls_name == "ToolCall":
                     tool_name = getattr(chunk, "name", "tool")
@@ -91,46 +139,21 @@ async def resolve_response_text(response, step_error_handler: StepErrorHandler, 
                     content = getattr(chunk, "text", None) or getattr(chunk, "content", None)
                     if content:
                         text_parts.append(str(content))
-            return "".join(text_parts)
+                continue
 
-        text_attr = getattr(response, "text", None)
-        if callable(text_attr):
-            return await text_attr()
+            if text_parts:
+                return "".join(text_parts).strip()
+            raise TimeoutError(f"Timed out waiting for Antigravity step after {int(idle_timeout)}s of inactivity")
+        finally:
+            for task in (next_task, err_task):
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except BaseException:
+                        pass
 
-        tokens = []
-        async for token in response:
-            tokens.append(str(token))
-        return "".join(tokens)
-
-    text_task = asyncio.create_task(_collect())
-    err_task = asyncio.create_task(step_error_handler.error_event.wait())
-    try:
-        done, pending = await asyncio.wait(
-            [text_task, err_task],
-            timeout=timeout,
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in pending:
-            task.cancel()
-            try:
-                await task
-            except BaseException:
-                pass
-
-        if err_task in done:
-            raise RuntimeError(step_error_handler.last_error or "Agent step terminated due to error")
-        if text_task in done:
-            return str(text_task.result() or "").strip()
-
-        raise TimeoutError(f"Timed out waiting for Antigravity response after {int(timeout)}s")
-    finally:
-        for task in (text_task, err_task):
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except BaseException:
-                    pass
+    return "".join(text_parts).strip()
 
 
 def build_agent_config(model_name: str, system_instructions: str):
@@ -208,6 +231,7 @@ async def main():
         mode = git_context.get("mode", "")
         if mode == "pull_request":
             pr_num = git_context.get("pull_number")
+            pr_title = git_context.get("title", "")
             base_ref = git_context.get("base_ref", "")
             head_ref = git_context.get("head_ref", "")
             head_sha = git_context.get("head_sha", "")
@@ -225,8 +249,8 @@ async def main():
                     pass
             context_block = (
                 f"Workspace Context:\n"
-                f"- Repository `{repo}` is checked out in `/workspace` at PR #{pr_num} (`{base_ref}` <- `{head_ref}`, SHA `{head_sha}`).\n"
-                f"- Full unified diff is saved at `/workspace/.omochi_pr.diff`."
+                f"- Repository `{repo}` is checked out in `/workspace` at PR #{pr_num}: {pr_title} (`{base_ref}` <- `{head_ref}`, SHA `{head_sha}`).\n"
+                f"- The complete unified diff for this Pull Request is provided below. Review the provided diff directly and only read additional files in `/workspace` if strictly necessary to verify a change."
             )
             if diff_excerpt:
                 context_block += f"\n\nPull Request Unified Diff:\n```diff\n{diff_excerpt}\n```"
@@ -276,10 +300,7 @@ async def main():
         )
 
         primary_model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"
-        fallback_models = []
-        for candidate in [primary_model, "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.8-flash"]:
-            if candidate and candidate not in fallback_models:
-                fallback_models.append(candidate)
+        fallback_models = [primary_model, "gemini-3.1-flash-lite", "gemini-3.5-flash"]
 
         emit("progress", message=f"Antigravity Agent initialized with workspace capabilities (model: {fallback_models[0]}).")
 
@@ -301,7 +322,12 @@ async def main():
                             message=f"Analyzing instruction #{sequence} with Antigravity ({current_model}, attempt {idx}/{max_attempts})...",
                         )
                         response = await agent.chat(prompt)
-                        summary = await resolve_response_text(response, step_error_handler, timeout=90.0)
+                        summary = await resolve_response_text(
+                            response,
+                            step_error_handler,
+                            idle_timeout=90.0,
+                            total_timeout=240.0,
+                        )
                         break
                 except Exception as e:
                     err_str = str(e)
