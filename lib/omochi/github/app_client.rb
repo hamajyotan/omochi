@@ -108,6 +108,22 @@ module Omochi
         )
       end
 
+      # Fetches Pull Request metadata (title, body, base/head refs and SHAs).
+      def fetch_pull_request(installation_id:, repository:, pull_number:)
+        token = installation_token(installation_id)
+        get_json("repos/#{repository}/pulls/#{pull_number}", bearer_token: token)
+      end
+
+      # Fetches the unified diff for a Pull Request (`application/vnd.github.v3.diff`).
+      def fetch_pull_request_diff(installation_id:, repository:, pull_number:)
+        token = installation_token(installation_id)
+        get_raw(
+          "repos/#{repository}/pulls/#{pull_number}",
+          bearer_token: token,
+          accept: "application/vnd.github.v3.diff"
+        )
+      end
+
       private
         def resolve(value_or_proc)
           value_or_proc.respond_to?(:call) ? value_or_proc.call : value_or_proc
@@ -119,7 +135,7 @@ module Omochi
 
         def post_json(endpoint, bearer_token:, payload:)
           uri = URI.parse("#{@base_url}/#{endpoint}")
-          response = @http_requester.call(
+          response = invoke_http(
             uri,
             token: bearer_token,
             method: :post,
@@ -131,7 +147,7 @@ module Omochi
 
         def get_json(endpoint, bearer_token:)
           uri = URI.parse("#{@base_url}/#{endpoint}")
-          response = @http_requester.call(
+          response = invoke_http(
             uri,
             token: bearer_token,
             method: :get,
@@ -141,7 +157,29 @@ module Omochi
           handle_http_response(response, endpoint)
         end
 
-        def handle_http_response(response, endpoint)
+        def get_raw(endpoint, bearer_token:, accept:)
+          uri = URI.parse("#{@base_url}/#{endpoint}")
+          response = invoke_http(
+            uri,
+            token: bearer_token,
+            method: :get,
+            body: nil,
+            accept: accept
+          )
+
+          handle_http_response(response, endpoint, parse_json: false)
+        end
+
+        def invoke_http(uri, token:, method:, body:, accept: "application/vnd.github+json")
+          params = @http_requester.parameters.map(&:last)
+          if params.include?(:accept)
+            @http_requester.call(uri, token: token, method: method, body: body, accept: accept)
+          else
+            @http_requester.call(uri, token: token, method: method, body: body)
+          end
+        end
+
+        def handle_http_response(response, endpoint, parse_json: true)
           code = response.code.to_i
           if code == 429
             retry_after = response["Retry-After"]&.to_i
@@ -152,6 +190,8 @@ module Omochi
             raise ApiError, "GitHub HTTP #{code} on #{endpoint}: #{response.body.to_s.truncate(500)}"
           end
 
+          return response.body.to_s unless parse_json
+
           JSON.parse(response.body.to_s)
         rescue JSON::ParserError => e
           raise ApiError, "Invalid JSON from GitHub #{endpoint}: #{e.message}"
@@ -159,7 +199,7 @@ module Omochi
           raise ApiError, "GitHub network error on #{endpoint}: #{e.class}: #{e.message}"
         end
 
-        def default_http_request(uri, token:, method: :post, body: nil)
+        def default_http_request(uri, token:, method: :post, body: nil, accept: "application/vnd.github+json")
           Net::HTTP.start(
             uri.host,
             uri.port,
@@ -169,7 +209,7 @@ module Omochi
           ) do |http|
             request = (method == :get) ? Net::HTTP::Get.new(uri.request_uri) : Net::HTTP::Post.new(uri.request_uri)
             request["Authorization"] = "Bearer #{token}"
-            request["Accept"] = "application/vnd.github+json"
+            request["Accept"] = accept
             request["X-GitHub-Api-Version"] = "2022-11-28"
             if body
               request["Content-Type"] = "application/json; charset=utf-8"

@@ -200,8 +200,43 @@ async def main():
     sequence = instruction.get("instruction_sequence", 1)
     body = instruction.get("body", "")
     history = instruction.get("history") or []
+    git_context = instruction.get("git_context") or {}
 
-    prompt = body
+    prompt_parts = []
+    if git_context:
+        repo = git_context.get("repository", "")
+        mode = git_context.get("mode", "")
+        if mode == "pull_request":
+            pr_num = git_context.get("pull_number")
+            base_ref = git_context.get("base_ref", "")
+            head_ref = git_context.get("head_ref", "")
+            head_sha = git_context.get("head_sha", "")
+            diff_file = os.path.join(WORKSPACE_DIR, git_context.get("diff_file", ".omochi_pr.diff"))
+            diff_excerpt = ""
+            if os.path.exists(diff_file):
+                try:
+                    with open(diff_file, "r", encoding="utf-8", errors="replace") as df:
+                        raw_diff = df.read()
+                    if len(raw_diff) > 40000:
+                        diff_excerpt = raw_diff[:40000] + "\n... (diff truncated in prompt; full diff is in /workspace/.omochi_pr.diff)"
+                    else:
+                        diff_excerpt = raw_diff
+                except Exception:
+                    pass
+            context_block = (
+                f"Workspace Context:\n"
+                f"- Repository `{repo}` is checked out in `/workspace` at PR #{pr_num} (`{base_ref}` <- `{head_ref}`, SHA `{head_sha}`).\n"
+                f"- Full unified diff is saved at `/workspace/.omochi_pr.diff`."
+            )
+            if diff_excerpt:
+                context_block += f"\n\nPull Request Unified Diff:\n```diff\n{diff_excerpt}\n```"
+            prompt_parts.append(context_block)
+        elif mode == "branch":
+            branch = git_context.get("branch", "")
+            prompt_parts.append(
+                f"Workspace Context:\n- Repository `{repo}` is checked out in `/workspace` (branch: `{branch}`)."
+            )
+
     if history:
         history_lines = ["Previous conversation history in this Quest:"]
         for entry in history:
@@ -211,8 +246,13 @@ async def main():
             history_lines.append(f"[Instruction #{seq} (User)]:\n{user_msg}")
             if agent_msg:
                 history_lines.append(f"[Response #{seq} (omochi)]:\n{agent_msg}")
-        history_lines.append(f"\nCurrent instruction (#{sequence}):\n{body}")
-        prompt = "\n\n".join(history_lines)
+        prompt_parts.append("\n\n".join(history_lines))
+
+    if prompt_parts:
+        prompt_parts.append(f"Current instruction (#{sequence}):\n{body}")
+        prompt = "\n\n".join(prompt_parts)
+    else:
+        prompt = body
 
     emit("started", message=f"Antigravity Agent starting for {quest_id} (instruction #{sequence})")
 

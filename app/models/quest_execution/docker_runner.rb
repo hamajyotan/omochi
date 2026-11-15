@@ -21,8 +21,12 @@ class QuestExecution::DockerRunner
 
   class_attribute :docker_client_factory, default: -> { Omochi::Docker::CliClient.new }
 
-  def initialize(docker_client: self.class.docker_client_factory.call)
+  def initialize(
+    docker_client: self.class.docker_client_factory.call,
+    workspace_syncer: Omochi::GitHub.build_workspace_syncer
+  )
     @docker_client = docker_client
+    @workspace_syncer = workspace_syncer
   end
 
   def run(execution)
@@ -71,6 +75,8 @@ class QuestExecution::DockerRunner
       workspace_dir = base_dir.join(quest.public_id)
       FileUtils.mkdir_p(workspace_dir)
 
+      git_context = @workspace_syncer&.sync!(execution, workspace_dir)
+
       prior_history = quest.instructions
         .where("sequence < ?", instruction.sequence)
         .in_queue_order
@@ -92,8 +98,9 @@ class QuestExecution::DockerRunner
         source_platform: instruction.source_platform,
         body: instruction.body,
         received_at: instruction.received_at.iso8601,
-        history: prior_history
-      }
+        history: prior_history,
+        git_context: git_context
+      }.compact
       File.write(workspace_dir.join(INSTRUCTION_FILENAME), JSON.pretty_generate(payload))
       workspace_dir
     end

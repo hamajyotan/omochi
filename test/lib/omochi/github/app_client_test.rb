@@ -78,4 +78,38 @@ class Omochi::GitHub::AppClientTest < ActiveSupport::TestCase
     assert_equal 7788, client.installation_id_for("hamajyotan/omochi")
     assert_equal 1, call_count, "Installation ID should be cached"
   end
+
+  test "fetch_pull_request and fetch_pull_request_diff request JSON and diff accept headers" do
+    fake_response = Struct.new(:code, :body) do
+      def [](_key)
+        nil
+      end
+    end
+
+    seen_accepts = []
+    requester = ->(uri, token:, method: :post, body: nil, accept: "application/vnd.github+json") do
+      seen_accepts << [ uri.path, accept ]
+      if uri.path.end_with?("/access_tokens")
+        fake_response.new("201", { token: "ghs_tok_123", expires_at: (Time.now + 3600).iso8601 }.to_json)
+      elsif accept == "application/vnd.github.v3.diff"
+        fake_response.new("200", "diff --git a/file.rb b/file.rb\n+hello\n")
+      else
+        fake_response.new("200", { number: 1, title: "Test PR" }.to_json)
+      end
+    end
+
+    client = Omochi::GitHub::AppClient.new(
+      app_id: "123",
+      private_key: @key_pem,
+      http_requester: requester
+    )
+
+    pr = client.fetch_pull_request(installation_id: 99, repository: "hamajyotan/omochi", pull_number: 1)
+    diff = client.fetch_pull_request_diff(installation_id: 99, repository: "hamajyotan/omochi", pull_number: 1)
+
+    assert_equal "Test PR", pr["title"]
+    assert_includes diff, "diff --git a/file.rb b/file.rb"
+    assert_includes seen_accepts, [ "/repos/hamajyotan/omochi/pulls/1", "application/vnd.github+json" ]
+    assert_includes seen_accepts, [ "/repos/hamajyotan/omochi/pulls/1", "application/vnd.github.v3.diff" ]
+  end
 end
