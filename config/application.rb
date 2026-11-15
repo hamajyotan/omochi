@@ -36,7 +36,7 @@ module Omochi
     # omochi specific settings (config/omochi.yml). Use Omochi::Settings to read them.
     config.omochi = config_for(:omochi)
 
-    # config.time_zone = "Central Time (US & Canada)"
+    config.time_zone = "Tokyo"
     # config.eager_load_paths << Rails.root.join("extras")
   end
 end
