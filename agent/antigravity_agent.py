@@ -45,6 +45,14 @@ def emit(event_type: str, message: str = "", **extra):
     sys.stdout.flush()
 
 
+async def heartbeat_worker(interval: float = 15.0):
+    count = 1
+    while True:
+        await asyncio.sleep(interval)
+        emit("progress", message=f"Antigravity Agent is reasoning and processing ({count * int(interval)}s elapsed)...")
+        count += 1
+
+
 async def main():
     if not os.path.exists(INSTRUCTION_FILE):
         emit("failed", message=f"Instruction file not found: {INSTRUCTION_FILE}")
@@ -77,41 +85,57 @@ async def main():
             "and testing the codebase. Be concise, precise, and provide a clear summary of your findings or changes."
         )
 
+        policies = []
         try:
-            config = LocalAgentConfig(
-                system_instructions=system_instructions,
-                capabilities=CapabilitiesConfig(),
-                app_data_dir=APP_DATA_DIR,
-            )
-        except TypeError:
-            config = LocalAgentConfig(
-                system_instructions=system_instructions,
-                capabilities=CapabilitiesConfig(),
-            )
+            from google.antigravity.hooks.policy import allow
+            policies.append(allow("*"))
+        except Exception:
+            pass
+
+        config_candidates = [
+            {"system_instructions": system_instructions, "capabilities": CapabilitiesConfig(), "app_data_dir": APP_DATA_DIR, "policies": policies},
+            {"system_instructions": system_instructions, "capabilities": CapabilitiesConfig(), "app_data_dir": APP_DATA_DIR},
+            {"system_instructions": system_instructions, "capabilities": CapabilitiesConfig()},
+            {"system_instructions": system_instructions},
+        ]
+        config = None
+        for kwargs in config_candidates:
+            try:
+                config = LocalAgentConfig(**kwargs)
+                break
+            except (TypeError, Exception):
+                continue
 
         emit("progress", message="Antigravity Agent initialized with workspace capabilities.")
 
         async with Agent(config) as agent:
-            emit("progress", message=f"Analyzing instruction #{sequence}...")
-            response = await agent.chat(body)
+            emit("progress", message=f"Analyzing instruction #{sequence} with Antigravity...")
+            heartbeat_task = asyncio.create_task(heartbeat_worker(15.0))
+            try:
+                response = await agent.chat(body)
+            finally:
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
 
-            # Stream thinking deltas in real time
-            async for thought in response.thoughts:
-                thought_str = str(thought).strip()
-                if thought_str:
-                    emit("progress", message=f"🤔 {thought_str}")
+            emit("progress", message="Received response from Antigravity, formatting summary...")
 
-            # Stream tool calls
-            async for call in response.tool_calls:
-                call_name = getattr(call, "name", str(call))
-                emit("progress", message=f"🔧 Executing tool: {call_name}")
+            summary = ""
+            if hasattr(response, "text"):
+                text_attr = response.text
+                if callable(text_attr):
+                    res = text_attr()
+                    summary = await res if asyncio.iscoroutine(res) else str(res)
+                else:
+                    summary = str(text_attr)
+            elif hasattr(response, "content"):
+                summary = str(response.content)
+            else:
+                summary = str(response)
 
-            # Stream response tokens
-            tokens = []
-            async for token in response:
-                tokens.append(token)
-
-            summary = "".join(tokens).strip()
+            summary = summary.strip()
             if not summary:
                 summary = f"Antigravity Agent completed instruction #{sequence}."
 
