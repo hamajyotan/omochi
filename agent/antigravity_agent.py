@@ -88,7 +88,7 @@ async def resolve_response_text(response, step_error_handler: StepErrorHandler, 
                     tool_name = getattr(chunk, "name", "tool")
                     emit("progress", message=f"Executing tool: {tool_name}...")
                 elif cls_name == "Text":
-                    content = getattr(chunk, "content", None)
+                    content = getattr(chunk, "text", None) or getattr(chunk, "content", None)
                     if content:
                         text_parts.append(str(content))
             return "".join(text_parts)
