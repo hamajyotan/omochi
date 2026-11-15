@@ -165,4 +165,54 @@ class Omochi::GitHub::EventHandlerTest < ActiveSupport::TestCase
     assert result.created_quest
     assert_includes result.instruction.quest.title, "Review PR #105"
   end
+
+  test "issue_comment with /review slash command starts a new Quest" do
+    comment_payload = {
+      "action" => "created",
+      "issue" => {
+        "number" => 101,
+        "title" => "Add slash commands",
+        "html_url" => "https://github.com/hamajyotan/omochi/pull/101",
+        "pull_request" => {}
+      },
+      "comment" => {
+        "body" => "/review お願いします",
+        "user" => { "login" => "dev_user", "type" => "User" }
+      },
+      "repository" => {
+        "full_name" => "hamajyotan/omochi"
+      }
+    }
+
+    result = @handler.handle(event_type: "issue_comment", delivery_id: "deliv_slash_review", payload: comment_payload)
+
+    assert_equal :accepted, result.status
+    assert result.created_quest
+    assert_includes result.instruction.quest.title, "Review PR #101"
+  end
+
+  test "issue_comment with /omochi slash command starts a new Quest" do
+    comment_payload = {
+      "action" => "created",
+      "issue" => {
+        "number" => 102,
+        "title" => "Add omochi command",
+        "html_url" => "https://github.com/hamajyotan/omochi/pull/102",
+        "pull_request" => {}
+      },
+      "comment" => {
+        "body" => "/omochi チェックして",
+        "user" => { "login" => "dev_user", "type" => "User" }
+      },
+      "repository" => {
+        "full_name" => "hamajyotan/omochi"
+      }
+    }
+
+    result = @handler.handle(event_type: "issue_comment", delivery_id: "deliv_slash_omochi", payload: comment_payload)
+
+    assert_equal :accepted, result.status
+    assert result.created_quest
+    assert_includes result.instruction.quest.title, "Review PR #102"
+  end
 end

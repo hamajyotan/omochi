@@ -67,7 +67,8 @@ module Omochi
           slug = (Omochi::Settings.dig(:github, :app_slug) || "omochi").to_s
           patterns = [
             /@#{Regexp.escape(slug)}(?:\[bot\])?(?:\s|\z|[^\w-])/i,
-            /@omochi(?:-agent)?(?:\[bot\])?(?:\s|\z|[^\w-])/i
+            /@omochi(?:-agent)?(?:\[bot\])?(?:\s|\z|[^\w-])/i,
+            /(?:\A|\s|[^\w])\/(?:review|omochi)\b/i
           ]
           patterns.any? { |pat| text.match?(pat) }
         end
