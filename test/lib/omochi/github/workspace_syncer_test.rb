@@ -93,6 +93,81 @@ class Omochi::GitHub::WorkspaceSyncerTest < ActiveSupport::TestCase
     end
   end
 
+  test "publish_changes! pushes Agent commit, creates a Pull Request, and links ExternalResource" do
+    quest = start_quest(body: "Implement new helper")
+    execution = quest.claim_next_instruction!
+
+    workspace_dir = File.join(@tmp_root, "workspace_publish")
+    syncer = Omochi::GitHub::WorkspaceSyncer.new(
+      app_client: @fake_app_client,
+      remote_url_resolver: ->(_repo) { @remote_repo }
+    )
+
+    context = syncer.sync!(execution, workspace_dir)
+
+    # Simulate Agent writing files and running `git add . && git commit` inside /workspace
+    File.write(File.join(workspace_dir, ".omochi_instruction.json"), '{"test":true}')
+    File.write(File.join(workspace_dir, "helper.rb"), "module Helper; end\n")
+    system("git", "-C", workspace_dir, "add", ".", exception: true)
+    system("git", "-C", workspace_dir, "commit", "-m", "Add Helper module", out: File::NULL, err: File::NULL, exception: true)
+
+    result = syncer.publish_changes!(
+      execution,
+      workspace_dir,
+      git_context: context,
+      summary: "Added Helper module as requested."
+    )
+
+    assert_equal "created_pr", result["action"]
+    assert_equal 101, result["pull_number"]
+    assert_equal "https://github.com/hamajyotan/omochi/pull/101", result["url"]
+    assert_equal "omochi/#{quest.public_id}", result["branch"]
+    assert_equal 1, result["commits_count"]
+
+    # Verify PR was created via AppClient with commit subject and quest marker
+    pr_req = @fake_app_client.created_pull_requests.sole
+    assert_equal "Add Helper module", pr_req[:title]
+    assert_includes pr_req[:body], "Added Helper module as requested."
+    assert_includes pr_req[:body], "<!-- omochi:quest=#{quest.public_id} -->"
+    assert_equal "omochi/#{quest.public_id}", pr_req[:head]
+    assert_equal "main", pr_req[:base]
+
+    # Verify ExternalResource was attached to the Quest
+    pr_res = quest.external_resources.find_by(platform: "github", resource_type: "pull_request")
+    assert_not_nil pr_res
+    assert_equal "101", pr_res.external_id
+
+    # Verify `.omochi_instruction.json` was excluded by `.git/info/exclude` and not committed
+    committed_files, _ = Open3.capture2("git", "--git-dir", @remote_repo, "ls-tree", "--name-only", "refs/heads/omochi/#{quest.public_id}")
+    assert_includes committed_files.lines.map(&:strip), "helper.rb"
+    assert_not_includes committed_files.lines.map(&:strip), ".omochi_instruction.json"
+  end
+
+  test "publish_changes! returns nil and does not push when Agent makes no commits" do
+    quest = start_quest(body: "Just investigate")
+    execution = quest.claim_next_instruction!
+
+    workspace_dir = File.join(@tmp_root, "workspace_no_commit")
+    syncer = Omochi::GitHub::WorkspaceSyncer.new(
+      app_client: @fake_app_client,
+      remote_url_resolver: ->(_repo) { @remote_repo }
+    )
+
+    context = syncer.sync!(execution, workspace_dir)
+    # Untracked file left behind without git commit
+    File.write(File.join(workspace_dir, "scratch.txt"), "notes\n")
+
+    result = syncer.publish_changes!(
+      execution,
+      workspace_dir,
+      git_context: context,
+      summary: "Investigated the issue."
+    )
+
+    assert_nil result
+    assert_empty @fake_app_client.created_pull_requests
+  end
+
   private
     def setup_local_remote_repo(bare_path)
       work_path = File.join(@tmp_root, "seed_work")

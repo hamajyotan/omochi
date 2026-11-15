@@ -59,6 +59,88 @@ module Omochi
         nil
       end
 
+      # Inspects `/workspace` after the Agent Container finishes (Milestone 8-2).
+      # If the Agent created one or more local `git commit`s (`HEAD` advanced
+      # past `start_sha`), pushes the branch using the host's GitHub App token
+      # and creates (or updates) the Pull Request.
+      def publish_changes!(execution, workspace_dir, git_context:, summary:)
+        return nil unless enabled?
+        return nil unless git_context.is_a?(Hash) && git_context["checked_out"] == true
+
+        start_sha = git_context["start_sha"].to_s.strip
+        repository = git_context["repository"].to_s.strip
+        return nil if start_sha.empty? || repository.empty?
+
+        current_sha = rev_parse_head(workspace_dir)
+        return nil if current_sha.blank? || current_sha == start_sha
+
+        commits_ahead = run_git(workspace_dir, "rev-list", "--count", "#{start_sha}..HEAD").strip.to_i
+        return nil if commits_ahead <= 0
+
+        client = resolved_app_client
+        installation_id = client.installation_id_for(repository)
+        token = client.installation_token(installation_id)
+
+        remote_branch =
+          if git_context["mode"] == "pull_request" && git_context["head_ref"].present?
+            git_context["head_ref"].to_s
+          else
+            git_context["branch"].presence || "omochi/#{execution.quest.public_id}"
+          end
+
+        run_authenticated_git(workspace_dir, token, "push", "origin", "HEAD:refs/heads/#{remote_branch}")
+
+        pr_resource = pull_request_resource(execution)
+        if pr_resource
+          {
+            "action" => "updated_pr",
+            "pull_number" => pr_resource.external_id.to_i,
+            "url" => pr_resource.url.presence || "https://github.com/#{repository}/pull/#{pr_resource.external_id}",
+            "branch" => remote_branch,
+            "head_sha" => current_sha,
+            "commits_count" => commits_ahead
+          }
+        else
+          commit_subject = run_git(workspace_dir, "log", "-1", "--pretty=%s", "HEAD").strip.presence || execution.quest.title
+          base_branch = git_context["base_ref"].presence || "main"
+          pr_body = build_pull_request_body(execution, summary)
+
+          pr_data = client.create_pull_request(
+            installation_id: installation_id,
+            repository: repository,
+            title: commit_subject.truncate(120),
+            body: pr_body,
+            head: remote_branch,
+            base: base_branch
+          )
+
+          pr_number = pr_data["number"].to_s
+          pr_url = pr_data["html_url"].to_s.presence || "https://github.com/#{repository}/pull/#{pr_number}"
+
+          execution.quest.external_resources.find_or_create_by!(
+            platform: "github",
+            resource_type: "pull_request",
+            scope_key: repository,
+            external_id: pr_number
+          ) do |res|
+            res.url = pr_url
+          end
+
+          {
+            "action" => "created_pr",
+            "pull_number" => pr_number.to_i,
+            "url" => pr_url,
+            "branch" => remote_branch,
+            "head_sha" => current_sha,
+            "commits_count" => commits_ahead
+          }
+        end
+      rescue StandardError => e
+        sanitized = sanitize_error_message(e.message)
+        Rails.error.report(e, context: { execution_id: execution.id, sanitized_message: sanitized })
+        nil
+      end
+
       private
         def enabled?
           return true if @app_client.present?
@@ -109,11 +191,13 @@ module Omochi
           )
 
           checked_out = false
+          start_sha = nil
           begin
             ensure_git_repo!(workspace_dir, repository)
             refspec = "+refs/pull/#{pull_number}/head:refs/remotes/origin/pr/#{pull_number}"
             run_authenticated_git(workspace_dir, token, "fetch", "--depth=50", "--no-tags", "origin", refspec)
             run_git(workspace_dir, "checkout", "-B", "omochi/pr-#{pull_number}", "-f", "refs/remotes/origin/pr/#{pull_number}")
+            start_sha = rev_parse_head(workspace_dir)
             checked_out = true
           rescue StandardError => e
             Rails.logger.warn("[WorkspaceSyncer] Git checkout failed for #{repository}##{pull_number}: #{sanitize_error_message(e.message)}")
@@ -130,6 +214,7 @@ module Omochi
             "base_ref" => pr_data.dig("base", "ref").to_s,
             "head_ref" => pr_data.dig("head", "ref").to_s,
             "head_sha" => pr_data.dig("head", "sha").to_s,
+            "start_sha" => start_sha,
             "checked_out" => checked_out,
             "diff_file" => PR_DIFF_FILENAME
           }
@@ -140,12 +225,19 @@ module Omochi
           refspec = "+HEAD:refs/remotes/origin/default_head"
           run_authenticated_git(workspace_dir, token, "fetch", "--depth=50", "--no-tags", "origin", refspec)
           branch_name = "omochi/#{quest_public_id}"
-          run_git(workspace_dir, "checkout", "-B", branch_name, "-f", "refs/remotes/origin/default_head")
+          if local_branch_exists?(workspace_dir, branch_name)
+            run_git(workspace_dir, "checkout", branch_name)
+          else
+            run_git(workspace_dir, "checkout", "-B", branch_name, "-f", "refs/remotes/origin/default_head")
+          end
+          start_sha = rev_parse_head(workspace_dir)
 
           {
             "repository" => repository,
             "mode" => "branch",
             "branch" => branch_name,
+            "base_ref" => "main",
+            "start_sha" => start_sha,
             "checked_out" => true
           }
         end
@@ -159,12 +251,54 @@ module Omochi
             run_git(dir, "init")
           end
 
+          run_git(dir, "config", "user.name", "omochi[bot]")
+          run_git(dir, "config", "user.email", "omochi[bot]@users.noreply.github.com")
+          ensure_git_exclude!(dir)
+
           remotes_out = run_git(dir, "remote")
           if remotes_out.lines.map(&:strip).include?("origin")
             run_git(dir, "remote", "set-url", "origin", remote_url)
           else
             run_git(dir, "remote", "add", "origin", remote_url)
           end
+        end
+
+        def ensure_git_exclude!(dir)
+          info_dir = File.join(dir, ".git", "info")
+          FileUtils.mkdir_p(info_dir)
+          exclude_file = File.join(info_dir, "exclude")
+          existing = File.exist?(exclude_file) ? File.read(exclude_file) : ""
+          entries = [ ".omochi_instruction.json", PR_DIFF_FILENAME ]
+          missing = entries.reject { |e| existing.lines.map(&:strip).include?(e) }
+          return if missing.empty?
+
+          File.open(exclude_file, "a") do |f|
+            f.write("\n") unless existing.empty? || existing.end_with?("\n")
+            missing.each { |e| f.puts(e) }
+          end
+        end
+
+        def local_branch_exists?(workspace_dir, branch_name)
+          out = run_git(workspace_dir, "branch", "--list", branch_name)
+          out.strip.present?
+        rescue StandardError
+          false
+        end
+
+        def rev_parse_head(workspace_dir)
+          run_git(workspace_dir, "rev-parse", "HEAD").strip
+        rescue StandardError
+          nil
+        end
+
+        def build_pull_request_body(execution, summary)
+          <<~BODY.strip
+            #{summary}
+
+            ---
+            <!-- omochi:quest=#{execution.quest.public_id} -->
+            Created automatically by omochi for Quest `#{execution.quest.public_id}` (Instruction ##{execution.instruction.sequence}).
+          BODY
         end
 
         def run_authenticated_git(workspace_dir, token, *args)

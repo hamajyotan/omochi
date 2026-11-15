@@ -30,7 +30,7 @@ class QuestExecution::DockerRunner
   end
 
   def run(execution)
-    workspace_path = prepare_workspace!(execution)
+    workspace_path, git_context = prepare_workspace!(execution)
     execution.mark_preparing!(workspace_path: workspace_path.to_s)
 
     container_id = create_container!(execution, workspace_path)
@@ -57,7 +57,14 @@ class QuestExecution::DockerRunner
       failed_event = event if event.event_type == "failed"
     end
 
-    finalize_execution!(execution, exit_code:, completed_event:, failed_event:)
+    finalize_execution!(
+      execution,
+      workspace_path: workspace_path,
+      git_context: git_context,
+      exit_code: exit_code,
+      completed_event: completed_event,
+      failed_event: failed_event
+    )
   rescue Omochi::Docker::TimeoutError => e
     execution.fail!(error_kind: "timeout", error_message: e.message)
   rescue Omochi::Docker::Error => e
@@ -102,7 +109,7 @@ class QuestExecution::DockerRunner
         git_context: git_context
       }.compact
       File.write(workspace_dir.join(INSTRUCTION_FILENAME), JSON.pretty_generate(payload))
-      workspace_dir
+      [ workspace_dir, git_context ]
     end
 
     def create_container!(execution, workspace_path)
@@ -143,11 +150,20 @@ class QuestExecution::DockerRunner
       )
     end
 
-    def finalize_execution!(execution, exit_code:, completed_event:, failed_event:)
+    def finalize_execution!(execution, workspace_path:, git_context:, exit_code:, completed_event:, failed_event:)
       if exit_code == 0 && completed_event && failed_event.nil?
         summary = completed_event.message.presence ||
           completed_event.payload["summary"].presence ||
           "Execution completed."
+
+        publish_result = @workspace_syncer&.publish_changes!(
+          execution,
+          workspace_path,
+          git_context: git_context,
+          summary: summary
+        )
+        summary = append_publish_result_to_summary(summary, publish_result) if publish_result
+
         execution.succeed!(result_summary: summary, exit_code: exit_code)
       else
         reason =
@@ -159,6 +175,20 @@ class QuestExecution::DockerRunner
             "Agent exited with status 0 without emitting a completed event"
           end
         execution.fail!(error_kind: "agent_error", error_message: reason, exit_code: exit_code)
+      end
+    end
+
+    def append_publish_result_to_summary(summary, publish_result)
+      url = publish_result["url"].to_s
+      return summary if url.blank? || summary.include?(url)
+
+      case publish_result["action"]
+      when "created_pr"
+        "#{summary}\n\n🔗 Pull Request created: #{url}"
+      when "updated_pr"
+        "#{summary}\n\n🔗 Pushed #{publish_result['commits_count']} commit(s) to PR ##{publish_result['pull_number']}: #{url}"
+      else
+        summary
       end
     end
 

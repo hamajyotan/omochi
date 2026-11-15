@@ -108,6 +108,21 @@ module Omochi
         )
       end
 
+      # Creates a new Pull Request on the repository.
+      def create_pull_request(installation_id:, repository:, title:, body:, head:, base: "main")
+        token = installation_token(installation_id)
+        post_json(
+          "repos/#{repository}/pulls",
+          bearer_token: token,
+          payload: {
+            title: title.to_s,
+            body: body.to_s,
+            head: head.to_s,
+            base: base.to_s
+          }
+        )
+      end
+
       # Fetches Pull Request metadata (title, body, base/head refs and SHAs).
       def fetch_pull_request(installation_id:, repository:, pull_number:)
         token = installation_token(installation_id)

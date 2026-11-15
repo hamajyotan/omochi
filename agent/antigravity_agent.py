@@ -265,9 +265,14 @@ async def main():
         from google.antigravity import Agent
 
         system_instructions = (
-            "You are omochi, an autonomous AI coding assistant running inside an isolated workspace. "
-            "Your working directory is /workspace. You have access to tools for navigating, editing, "
-            "and testing the codebase. Be concise, precise, and provide a clear summary of your findings or changes."
+            "You are omochi, an autonomous AI coding assistant running inside an isolated workspace (/workspace). "
+            "You have access to tools for navigating, editing, and testing the codebase. "
+            "When asked to implement a feature, fix a bug, or modify files for a Pull Request: "
+            "1) Edit the necessary files in /workspace, 2) Run relevant checks/tests if applicable, and "
+            "3) Stage and commit your changes locally with `git add <files>` and `git commit -m '<concise commit title>'` "
+            "(do NOT run `git push`; the host will automatically push any new local commits and create or update the Pull Request after you finish). "
+            "When only answering a question, investigating, or reviewing a Pull Request (/review), do NOT create any Git commits. "
+            "Be concise, precise, and provide a clear summary of your findings or changes."
         )
 
         primary_model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"

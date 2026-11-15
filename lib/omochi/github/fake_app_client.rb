@@ -2,12 +2,13 @@
 module Omochi
   module GitHub
     class FakeAppClient
-      attr_reader :reviews, :comments, :tokens_requested
-      attr_accessor :on_create_review, :on_create_comment, :pull_requests, :pull_request_diffs
+      attr_reader :reviews, :comments, :created_pull_requests, :tokens_requested
+      attr_accessor :on_create_review, :on_create_comment, :on_create_pull_request, :pull_requests, :pull_request_diffs
 
       def initialize
         @reviews = []
         @comments = []
+        @created_pull_requests = []
         @tokens_requested = []
         @pull_requests = {}
         @pull_request_diffs = {}
@@ -20,6 +21,34 @@ module Omochi
 
       def installation_id_for(_repository)
         1
+      end
+
+      def create_pull_request(installation_id:, repository:, title:, body:, head:, base: "main")
+        if @on_create_pull_request
+          return @on_create_pull_request.call(installation_id:, repository:, title:, body:, head:, base:)
+        end
+
+        number = 100 + @created_pull_requests.size + 1
+        record = {
+          installation_id: installation_id,
+          repository: repository.to_s,
+          number: number,
+          title: title.to_s,
+          body: body.to_s,
+          head: head.to_s,
+          base: base.to_s,
+          html_url: "https://github.com/#{repository}/pull/#{number}"
+        }
+        @created_pull_requests << record
+        {
+          "id" => 5000 + number,
+          "number" => number,
+          "title" => record[:title],
+          "body" => record[:body],
+          "html_url" => record[:html_url],
+          "head" => { "ref" => record[:head] },
+          "base" => { "ref" => record[:base] }
+        }
       end
 
       def fetch_pull_request(installation_id:, repository:, pull_number:)

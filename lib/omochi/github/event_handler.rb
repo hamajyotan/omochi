@@ -43,10 +43,13 @@ module Omochi
 
             process_pr_review_request(delivery_id, pr, repo)
           when "opened", "reopened"
+            return ignored if payload.dig("sender", "type") == "Bot"
             return ignored unless has_slash_command?(pr["body"])
 
             process_pr_review_request(delivery_id, pr, repo)
           when "synchronize"
+            return ignored if payload.dig("sender", "type") == "Bot"
+
             process_pr_synchronize(delivery_id, pr, repo)
           else
             ignored
