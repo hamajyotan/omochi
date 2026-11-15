@@ -95,4 +95,74 @@ class Omochi::GitHub::EventHandlerTest < ActiveSupport::TestCase
     assert_equal 2, result.instruction.sequence
     assert_equal "I updated the auth logic as requested", result.instruction.body
   end
+
+  test "issue_comment mentioning @omochi-agent on unlinked PR starts a new Quest" do
+    comment_payload = {
+      "action" => "created",
+      "issue" => {
+        "number" => 99,
+        "title" => "Refactor background worker",
+        "html_url" => "https://github.com/hamajyotan/omochi/pull/99",
+        "body" => "Initial description",
+        "pull_request" => {}
+      },
+      "comment" => {
+        "body" => "@omochi-agent レビューをお願いします",
+        "user" => { "login" => "dev_user", "type" => "User" }
+      },
+      "repository" => {
+        "full_name" => "hamajyotan/omochi"
+      }
+    }
+
+    result = @handler.handle(event_type: "issue_comment", delivery_id: "deliv_mention", payload: comment_payload)
+
+    assert_equal :accepted, result.status
+    assert result.created_quest
+    quest = result.instruction.quest
+    assert_includes quest.title, "Review PR #99: Refactor background worker"
+    assert_includes result.instruction.body, "@omochi-agent レビューをお願いします"
+    assert_includes result.instruction.body, "Initial description"
+
+    resource = quest.external_resources.sole
+    assert_equal "github", resource.platform
+    assert_equal "pull_request", resource.resource_type
+    assert_equal "hamajyotan/omochi", resource.scope_key
+    assert_equal "99", resource.external_id
+    assert_equal "https://github.com/hamajyotan/omochi/pull/99", resource.url
+  end
+
+  test "issue_comment on unlinked PR without mention is ignored" do
+    comment_payload = {
+      "action" => "created",
+      "issue" => {
+        "number" => 99,
+        "title" => "Refactor background worker",
+        "pull_request" => {}
+      },
+      "comment" => {
+        "body" => "Looks interesting!",
+        "user" => { "login" => "dev_user", "type" => "User" }
+      },
+      "repository" => {
+        "full_name" => "hamajyotan/omochi"
+      }
+    }
+
+    result = @handler.handle(event_type: "issue_comment", delivery_id: "deliv_no_mention", payload: comment_payload)
+    assert_equal :ignored, result.status
+    assert_nil result.instruction
+  end
+
+  test "pull_request opened mentioning @omochi in description starts a new Quest" do
+    payload = build_pr_payload(action: "opened", pr_number: 105)
+    payload["pull_request"]["body"] = "Please review @omochi"
+    payload.delete("requested_reviewer")
+
+    result = @handler.handle(event_type: "pull_request", delivery_id: "deliv_opened", payload: payload)
+
+    assert_equal :accepted, result.status
+    assert result.created_quest
+    assert_includes result.instruction.quest.title, "Review PR #105"
+  end
 end

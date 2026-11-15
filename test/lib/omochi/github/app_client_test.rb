@@ -37,7 +37,7 @@ class Omochi::GitHub::AppClientTest < ActiveSupport::TestCase
       end
     end
 
-    requester = ->(uri, token:, body:) do
+    requester = ->(uri, token:, method: :post, body: nil) do
       call_count += 1
       fake_response.new("201", { token: "ghs_tok_123", expires_at: (Time.now + 3600).iso8601 }.to_json)
     end
@@ -51,5 +51,31 @@ class Omochi::GitHub::AppClientTest < ActiveSupport::TestCase
     assert_equal "ghs_tok_123", client.installation_token(99)
     assert_equal "ghs_tok_123", client.installation_token(99)
     assert_equal 1, call_count, "Token should be cached"
+  end
+
+  test "installation_id_for queries GitHub and caches result" do
+    call_count = 0
+    fake_response = Struct.new(:code, :body) do
+      def [](key)
+        nil
+      end
+    end
+
+    requester = ->(uri, token:, method: :post, body: nil) do
+      call_count += 1
+      assert_equal :get, method
+      assert_equal "/repos/hamajyotan/omochi/installation", uri.path
+      fake_response.new("200", { id: 7788 }.to_json)
+    end
+
+    client = Omochi::GitHub::AppClient.new(
+      app_id: "123",
+      private_key: @key_pem,
+      http_requester: requester
+    )
+
+    assert_equal 7788, client.installation_id_for("hamajyotan/omochi")
+    assert_equal 7788, client.installation_id_for("hamajyotan/omochi")
+    assert_equal 1, call_count, "Installation ID should be cached"
   end
 end

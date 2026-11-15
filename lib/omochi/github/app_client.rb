@@ -73,6 +73,18 @@ module Omochi
         token
       end
 
+      # Finds the installation ID for a given repository (e.g. "hamajyotan/omochi").
+      def installation_id_for(repository)
+        @installation_ids ||= {}
+        return @installation_ids[repository] if @installation_ids.key?(repository)
+
+        jwt = generate_jwt
+        response = get_json("repos/#{repository}/installation", bearer_token: jwt)
+        id = response["id"].to_i
+        @installation_ids[repository] = id
+        id
+      end
+
       # Submits a Pull Request Review (e.g. COMMENT, APPROVE, REQUEST_CHANGES).
       def create_pull_request_review(installation_id:, repository:, pull_number:, body:, event: "COMMENT")
         token = installation_token(installation_id)
@@ -110,7 +122,20 @@ module Omochi
           response = @http_requester.call(
             uri,
             token: bearer_token,
+            method: :post,
             body: payload.empty? ? nil : JSON.generate(payload)
+          )
+
+          handle_http_response(response, endpoint)
+        end
+
+        def get_json(endpoint, bearer_token:)
+          uri = URI.parse("#{@base_url}/#{endpoint}")
+          response = @http_requester.call(
+            uri,
+            token: bearer_token,
+            method: :get,
+            body: nil
           )
 
           handle_http_response(response, endpoint)
@@ -134,7 +159,7 @@ module Omochi
           raise ApiError, "GitHub network error on #{endpoint}: #{e.class}: #{e.message}"
         end
 
-        def default_http_request(uri, token:, body:)
+        def default_http_request(uri, token:, method: :post, body: nil)
           Net::HTTP.start(
             uri.host,
             uri.port,
@@ -142,7 +167,7 @@ module Omochi
             open_timeout: OPEN_TIMEOUT_SECONDS,
             read_timeout: READ_TIMEOUT_SECONDS
           ) do |http|
-            request = Net::HTTP::Post.new(uri.request_uri)
+            request = (method == :get) ? Net::HTTP::Get.new(uri.request_uri) : Net::HTTP::Post.new(uri.request_uri)
             request["Authorization"] = "Bearer #{token}"
             request["Accept"] = "application/vnd.github+json"
             request["X-GitHub-Api-Version"] = "2022-11-28"

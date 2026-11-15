@@ -42,6 +42,10 @@ module Omochi
             return ignored unless reviewer_is_omochi?(requested_reviewer)
 
             process_pr_review_request(delivery_id, pr, repo)
+          when "opened", "reopened"
+            return ignored unless mentions_omochi?(pr["body"])
+
+            process_pr_review_request(delivery_id, pr, repo)
           when "synchronize"
             process_pr_synchronize(delivery_id, pr, repo)
           else
@@ -52,9 +56,20 @@ module Omochi
         def reviewer_is_omochi?(requested_reviewer)
           return false unless requested_reviewer.is_a?(Hash)
 
-          configured_slug = Omochi::Settings.dig(:github, :app_slug) || "omochi"
+          configured_slug = (Omochi::Settings.dig(:github, :app_slug) || "omochi").to_s
           login = requested_reviewer["login"].to_s.sub(/\[bot\]\z/, "")
-          login.casecmp?(configured_slug)
+          login.casecmp?(configured_slug) || login.casecmp?("omochi") || login.casecmp?("omochi-agent")
+        end
+
+        def mentions_omochi?(text)
+          return false if text.blank?
+
+          slug = (Omochi::Settings.dig(:github, :app_slug) || "omochi").to_s
+          patterns = [
+            /@#{Regexp.escape(slug)}(?:\[bot\])?(?:\s|\z|[^\w-])/i,
+            /@omochi(?:-agent)?(?:\[bot\])?(?:\s|\z|[^\w-])/i
+          ]
+          patterns.any? { |pat| text.match?(pat) }
         end
 
         def process_pr_review_request(delivery_id, pr, repo)
@@ -145,21 +160,72 @@ module Omochi
             scope_key: scope_key,
             external_id: issue_number
           )
-          return ignored unless resource
-
           body = comment["body"].to_s.strip
           return ignored if body.empty?
 
-          instruction = resource.quest.receive_instruction!(
-            body: body,
-            source_platform: "github",
-            source_event_id: delivery_id,
-            external_resource: resource
-          )
-          Result.new(status: :accepted, instruction: instruction, created_quest: false, duplicate: false)
+          if resource
+            instruction = resource.quest.receive_instruction!(
+              body: body,
+              source_platform: "github",
+              source_event_id: delivery_id,
+              external_resource: resource
+            )
+            Result.new(status: :accepted, instruction: instruction, created_quest: false, duplicate: false)
+          else
+            return ignored unless mentions_omochi?(body)
+
+            existing = QuestInstruction.find_duplicate(source_platform: "github", source_event_id: delivery_id)
+            return Result.new(status: :duplicate, instruction: existing, created_quest: false, duplicate: true) if existing
+
+            prefix = resource_type == "pull_request" ? "Review PR" : "Issue"
+            title = "#{prefix} ##{issue_number}: #{issue['title'].to_s.truncate(80)}"
+            instruction_body = build_issue_comment_instruction_body(comment, issue, resource_type: resource_type)
+
+            instruction = Quest.start!(
+              title: title,
+              body: instruction_body,
+              source_platform: "github",
+              source_event_id: delivery_id,
+              external_resource: {
+                platform: "github",
+                resource_type: resource_type,
+                scope_key: scope_key,
+                external_id: issue_number,
+                url: issue["html_url"].to_s
+              }
+            )
+            Result.new(status: :accepted, instruction: instruction, created_quest: true, duplicate: false)
+          end
         rescue ActiveRecord::RecordNotUnique
           existing = QuestInstruction.find_duplicate(source_platform: "github", source_event_id: delivery_id)
           Result.new(status: :duplicate, instruction: existing, created_quest: false, duplicate: true)
+        end
+
+        def build_issue_comment_instruction_body(comment, issue, resource_type:)
+          user_login = comment.dig("user", "login")
+          body = comment["body"].to_s.strip
+
+          if resource_type == "pull_request"
+            <<~BODY.strip
+              Pull Request review requested via comment: ##{issue['number']} - #{issue['title']}
+              URL: #{issue['html_url']}
+              Comment by @#{user_login}:
+              #{body}
+
+              PR Description:
+              #{issue['body'].presence || '(no description)'}
+            BODY
+          else
+            <<~BODY.strip
+              GitHub Issue ##{issue['number']} - #{issue['title']}
+              URL: #{issue['html_url']}
+              Comment by @#{user_login}:
+              #{body}
+
+              Issue Description:
+              #{issue['body'].presence || '(no description)'}
+            BODY
+          end
         end
 
         def build_pr_instruction_body(pr, action_label:)

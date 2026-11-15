@@ -16,6 +16,10 @@ module Omochi
         "ghs_fake_token_#{installation_id}"
       end
 
+      def installation_id_for(_repository)
+        1
+      end
+
       def create_pull_request_review(installation_id:, repository:, pull_number:, body:, event: "COMMENT")
         return @on_create_review.call(installation_id:, repository:, pull_number:, body:, event:) if @on_create_review
 

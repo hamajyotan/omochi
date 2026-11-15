@@ -20,9 +20,8 @@ class GitHubNotificationJob < ApplicationJob
     number = external_resource.external_id # e.g. "42"
     client = Omochi::GitHub.build_app_client
 
-    # Installation ID can be stored in external_resource or looked up; for now
-    # pass 0 or configured installation if single-tenant.
-    installation_id = ENV.fetch("GITHUB_APP_INSTALLATION_ID", 1).to_i
+    # Use explicit installation ID if configured; otherwise look it up via repository
+    installation_id = ENV["GITHUB_APP_INSTALLATION_ID"].presence&.to_i || client.installation_id_for(repository)
 
     if external_resource.resource_type == "pull_request"
       client.create_pull_request_review(
