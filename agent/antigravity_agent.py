@@ -122,18 +122,42 @@ async def main():
 
             emit("progress", message="Received response from Antigravity, formatting summary...")
 
+            # Inspect response object for debugging
+            response_attrs = [m for m in dir(response) if not m.startswith("_")]
+            emit("log", message=f"Antigravity response type: {type(response).__name__}, attributes: {response_attrs}")
+
             summary = ""
-            if hasattr(response, "text"):
-                text_attr = response.text
-                if callable(text_attr):
-                    res = text_attr()
-                    summary = await res if asyncio.iscoroutine(res) else str(res)
+            tokens = []
+            try:
+                # Primary official pattern from Antigravity SDK: async for token in response
+                async def stream_tokens():
+                    async for token in response:
+                        tokens.append(str(token))
+
+                await asyncio.wait_for(stream_tokens(), timeout=90.0)
+                summary = "".join(tokens).strip()
+            except TypeError:
+                # If response is not an async iterable, check text or content properties
+                emit("log", message="Response is not an async iterable, checking text/content properties...")
+                if hasattr(response, "text"):
+                    text_val = getattr(response, "text")
+                    if callable(text_val):
+                        res = text_val()
+                        if asyncio.iscoroutine(res):
+                            res = await asyncio.wait_for(res, timeout=30.0)
+                        summary = str(res)
+                    else:
+                        summary = str(text_val)
+                elif hasattr(response, "content"):
+                    summary = str(response.content)
                 else:
-                    summary = str(text_attr)
-            elif hasattr(response, "content"):
-                summary = str(response.content)
-            else:
-                summary = str(response)
+                    summary = str(response)
+            except asyncio.TimeoutError:
+                emit("log", message="Token stream collection timed out after 90s, using collected tokens.")
+                summary = "".join(tokens).strip()
+            except Exception as e:
+                emit("log", message=f"Error reading response tokens: {e}")
+                summary = "".join(tokens).strip()
 
             summary = summary.strip()
             if not summary:
