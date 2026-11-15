@@ -76,20 +76,33 @@ async def heartbeat_worker(interval: float = 15.0):
         count += 1
 
 
-async def resolve_response_text(response, step_error_handler: StepErrorHandler, timeout: float = 180.0) -> str:
-    """Resolves the full text from ChatResponse while watching for silent step termination errors."""
-    text_attr = getattr(response, "text", None)
-    if callable(text_attr):
-        coro = text_attr()
-    else:
-        async def _stream():
-            chunks = []
-            async for token in response:
-                chunks.append(str(token))
-            return "".join(chunks)
-        coro = _stream()
+async def resolve_response_text(response, step_error_handler: StepErrorHandler, timeout: float = 90.0) -> str:
+    """Resolves the full text from ChatResponse while streaming tool call progress and watching for step errors."""
+    async def _collect():
+        chunks_attr = getattr(response, "chunks", None)
+        if chunks_attr is not None:
+            text_parts = []
+            async for chunk in chunks_attr:
+                cls_name = type(chunk).__name__
+                if cls_name == "ToolCall":
+                    tool_name = getattr(chunk, "name", "tool")
+                    emit("progress", message=f"Executing tool: {tool_name}...")
+                elif cls_name == "Text":
+                    content = getattr(chunk, "content", None)
+                    if content:
+                        text_parts.append(str(content))
+            return "".join(text_parts)
 
-    text_task = asyncio.create_task(coro)
+        text_attr = getattr(response, "text", None)
+        if callable(text_attr):
+            return await text_attr()
+
+        tokens = []
+        async for token in response:
+            tokens.append(str(token))
+        return "".join(tokens)
+
+    text_task = asyncio.create_task(_collect())
     err_task = asyncio.create_task(step_error_handler.error_event.wait())
     try:
         done, pending = await asyncio.wait(
@@ -120,6 +133,57 @@ async def resolve_response_text(response, step_error_handler: StepErrorHandler, 
                     pass
 
 
+def build_agent_config(model_name: str, system_instructions: str):
+    from google.antigravity import CapabilitiesConfig, LocalAgentConfig
+
+    policies = []
+    try:
+        from google.antigravity.hooks.policy import allow_all
+        policies.append(allow_all())
+    except Exception:
+        try:
+            from google.antigravity.hooks.policy import allow
+            policies.append(allow("*"))
+        except Exception:
+            pass
+
+    config_candidates = [
+        {
+            "model": model_name,
+            "system_instructions": system_instructions,
+            "capabilities": CapabilitiesConfig(),
+            "workspaces": [WORKSPACE_DIR],
+            "app_data_dir": APP_DATA_DIR,
+            "policies": policies,
+        },
+        {
+            "model": model_name,
+            "system_instructions": system_instructions,
+            "capabilities": CapabilitiesConfig(),
+            "app_data_dir": APP_DATA_DIR,
+            "policies": policies,
+        },
+        {
+            "system_instructions": system_instructions,
+            "capabilities": CapabilitiesConfig(),
+            "app_data_dir": APP_DATA_DIR,
+            "policies": policies,
+        },
+        {
+            "system_instructions": system_instructions,
+            "capabilities": CapabilitiesConfig(),
+            "app_data_dir": APP_DATA_DIR,
+        },
+        {"system_instructions": system_instructions},
+    ]
+    for kwargs in config_candidates:
+        try:
+            return LocalAgentConfig(**kwargs)
+        except (TypeError, Exception):
+            continue
+    return LocalAgentConfig()
+
+
 async def main():
     if not os.path.exists(INSTRUCTION_FILE):
         emit("failed", message=f"Instruction file not found: {INSTRUCTION_FILE}")
@@ -144,7 +208,7 @@ async def main():
         sys.exit(2)
 
     try:
-        from google.antigravity import Agent, CapabilitiesConfig, LocalAgentConfig
+        from google.antigravity import Agent
 
         system_instructions = (
             "You are omochi, an autonomous AI coding assistant running inside an isolated workspace. "
@@ -152,58 +216,55 @@ async def main():
             "and testing the codebase. Be concise, precise, and provide a clear summary of your findings or changes."
         )
 
-        policies = []
-        try:
-            from google.antigravity.hooks.policy import allow
-            policies.append(allow("*"))
-        except Exception:
-            pass
+        primary_model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"
+        fallback_models = []
+        for candidate in [primary_model, "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.8-flash"]:
+            if candidate and candidate not in fallback_models:
+                fallback_models.append(candidate)
 
-        config_candidates = [
-            {"system_instructions": system_instructions, "capabilities": CapabilitiesConfig(), "app_data_dir": APP_DATA_DIR, "policies": policies},
-            {"system_instructions": system_instructions, "capabilities": CapabilitiesConfig(), "app_data_dir": APP_DATA_DIR},
-            {"system_instructions": system_instructions, "capabilities": CapabilitiesConfig()},
-            {"system_instructions": system_instructions},
-        ]
-        config = None
-        for kwargs in config_candidates:
-            try:
-                config = LocalAgentConfig(**kwargs)
-                break
-            except (TypeError, Exception):
-                continue
-
-        emit("progress", message="Antigravity Agent initialized with workspace capabilities.")
+        emit("progress", message=f"Antigravity Agent initialized with workspace capabilities (model: {fallback_models[0]}).")
 
         step_error_handler = StepErrorHandler()
         logging.getLogger().addHandler(step_error_handler)
         loop = asyncio.get_running_loop()
 
         summary = ""
-        max_retries = 3
+        max_attempts = len(fallback_models)
         heartbeat_task = asyncio.create_task(heartbeat_worker(15.0))
         try:
-            for attempt in range(1, max_retries + 1):
+            for idx, current_model in enumerate(fallback_models, start=1):
                 step_error_handler.reset(loop)
+                config = build_agent_config(current_model, system_instructions)
                 try:
                     async with Agent(config) as agent:
-                        emit("progress", message=f"Analyzing instruction #{sequence} with Antigravity (attempt {attempt}/{max_retries})...")
+                        emit(
+                            "progress",
+                            message=f"Analyzing instruction #{sequence} with Antigravity ({current_model}, attempt {idx}/{max_attempts})...",
+                        )
                         response = await agent.chat(body)
-                        summary = await resolve_response_text(response, step_error_handler, timeout=180.0)
+                        summary = await resolve_response_text(response, step_error_handler, timeout=90.0)
                         break
                 except Exception as e:
                     err_str = str(e)
                     is_retryable = any(
                         code in err_str
-                        for code in ["503", "429", "UNAVAILABLE", "high demand", "retryable", "terminated due to error"]
+                        for code in [
+                            "503",
+                            "429",
+                            "UNAVAILABLE",
+                            "high demand",
+                            "retryable",
+                            "terminated due to error",
+                            "Timed out waiting",
+                        ]
                     )
-                    if is_retryable and attempt < max_retries:
-                        backoff = attempt * 5
+                    if is_retryable and idx < max_attempts:
+                        next_model = fallback_models[idx]
                         emit(
                             "progress",
-                            message=f"Model provider temporary error (HTTP 503/429). Retrying in {backoff}s (attempt {attempt}/{max_retries})...",
+                            message=f"Model {current_model} unavailable or timed out. Falling back to {next_model} (attempt {idx + 1}/{max_attempts})...",
                         )
-                        await asyncio.sleep(backoff)
+                        await asyncio.sleep(2)
                     else:
                         raise
         finally:

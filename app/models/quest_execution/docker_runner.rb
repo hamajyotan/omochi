@@ -103,6 +103,9 @@ class QuestExecution::DockerRunner
       if (api_key = docker_setting_optional(:gemini_api_key))
         env["GEMINI_API_KEY"] = api_key
       end
+      if (gemini_model = docker_setting_optional(:gemini_model))
+        env["GEMINI_MODEL"] = gemini_model
+      end
 
       @docker_client.create_container(
         name: container_name,
