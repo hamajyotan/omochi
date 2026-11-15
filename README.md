@@ -1,4 +1,4 @@
-# omochi
+# omochi (a.k.a. Omochi Agent System)
 
 `omochi` は、複数のプラットフォームをまたいで一つの仕事（Quest）を継続的に管理し、AI Agent に実行させるアシスタント基盤です。
 
