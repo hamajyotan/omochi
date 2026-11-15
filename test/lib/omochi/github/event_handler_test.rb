@@ -67,7 +67,7 @@ class Omochi::GitHub::EventHandlerTest < ActiveSupport::TestCase
     end
   end
 
-  test "issue_comment on existing Quest creates a follow-up instruction" do
+  test "issue_comment on existing Quest with slash command creates a follow-up instruction" do
     # First create PR Quest
     @handler.handle(event_type: "pull_request", delivery_id: "deliv_pr", payload: build_pr_payload)
     quest = Quest.last
@@ -79,7 +79,7 @@ class Omochi::GitHub::EventHandlerTest < ActiveSupport::TestCase
         "pull_request" => {} # indicates it is a PR
       },
       "comment" => {
-        "body" => "I updated the auth logic as requested",
+        "body" => "/review I updated the auth logic as requested",
         "user" => { "login" => "dev_user", "type" => "User" }
       },
       "repository" => {
@@ -93,21 +93,20 @@ class Omochi::GitHub::EventHandlerTest < ActiveSupport::TestCase
     assert_not result.created_quest
     assert_equal quest, result.instruction.quest
     assert_equal 2, result.instruction.sequence
-    assert_equal "I updated the auth logic as requested", result.instruction.body
+    assert_equal "/review I updated the auth logic as requested", result.instruction.body
   end
 
-  test "issue_comment mentioning @omochi-agent on unlinked PR starts a new Quest" do
+  test "issue_comment on existing Quest without slash command is ignored" do
+    @handler.handle(event_type: "pull_request", delivery_id: "deliv_pr", payload: build_pr_payload)
+
     comment_payload = {
       "action" => "created",
       "issue" => {
-        "number" => 99,
-        "title" => "Refactor background worker",
-        "html_url" => "https://github.com/hamajyotan/omochi/pull/99",
-        "body" => "Initial description",
+        "number" => 42,
         "pull_request" => {}
       },
       "comment" => {
-        "body" => "@omochi-agent レビューをお願いします",
+        "body" => "Just a discussion between humans",
         "user" => { "login" => "dev_user", "type" => "User" }
       },
       "repository" => {
@@ -115,24 +114,37 @@ class Omochi::GitHub::EventHandlerTest < ActiveSupport::TestCase
       }
     }
 
-    result = @handler.handle(event_type: "issue_comment", delivery_id: "deliv_mention", payload: comment_payload)
-
-    assert_equal :accepted, result.status
-    assert result.created_quest
-    quest = result.instruction.quest
-    assert_includes quest.title, "Review PR #99: Refactor background worker"
-    assert_includes result.instruction.body, "@omochi-agent レビューをお願いします"
-    assert_includes result.instruction.body, "Initial description"
-
-    resource = quest.external_resources.sole
-    assert_equal "github", resource.platform
-    assert_equal "pull_request", resource.resource_type
-    assert_equal "hamajyotan/omochi", resource.scope_key
-    assert_equal "99", resource.external_id
-    assert_equal "https://github.com/hamajyotan/omochi/pull/99", resource.url
+    result = @handler.handle(event_type: "issue_comment", delivery_id: "deliv_comment_human", payload: comment_payload)
+    assert_equal :ignored, result.status
+    assert_nil result.instruction
   end
 
-  test "issue_comment on unlinked PR without mention is ignored" do
+  test "issue_comment with @omochi-agent or @omochi mention is ignored" do
+    [ "@omochi-agent レビューをお願いします", "@omochi review", "@omochi-agent[bot] please" ].each do |body|
+      comment_payload = {
+        "action" => "created",
+        "issue" => {
+          "number" => 99,
+          "title" => "Refactor background worker",
+          "html_url" => "https://github.com/hamajyotan/omochi/pull/99",
+          "pull_request" => {}
+        },
+        "comment" => {
+          "body" => body,
+          "user" => { "login" => "dev_user", "type" => "User" }
+        },
+        "repository" => {
+          "full_name" => "hamajyotan/omochi"
+        }
+      }
+
+      result = @handler.handle(event_type: "issue_comment", delivery_id: "deliv_mention_#{body.hash}", payload: comment_payload)
+      assert_equal :ignored, result.status, "Expected #{body} to be ignored"
+      assert_nil result.instruction
+    end
+  end
+
+  test "issue_comment on unlinked PR without slash command is ignored" do
     comment_payload = {
       "action" => "created",
       "issue" => {
@@ -154,16 +166,27 @@ class Omochi::GitHub::EventHandlerTest < ActiveSupport::TestCase
     assert_nil result.instruction
   end
 
-  test "pull_request opened mentioning @omochi in description starts a new Quest" do
+  test "pull_request opened with /review in description starts a new Quest" do
     payload = build_pr_payload(action: "opened", pr_number: 105)
-    payload["pull_request"]["body"] = "Please review @omochi"
+    payload["pull_request"]["body"] = "Please /review"
     payload.delete("requested_reviewer")
 
-    result = @handler.handle(event_type: "pull_request", delivery_id: "deliv_opened", payload: payload)
+    result = @handler.handle(event_type: "pull_request", delivery_id: "deliv_opened_review", payload: payload)
 
     assert_equal :accepted, result.status
     assert result.created_quest
     assert_includes result.instruction.quest.title, "Review PR #105"
+  end
+
+  test "pull_request opened with @omochi mention in description is ignored" do
+    payload = build_pr_payload(action: "opened", pr_number: 106)
+    payload["pull_request"]["body"] = "Please review @omochi"
+    payload.delete("requested_reviewer")
+
+    result = @handler.handle(event_type: "pull_request", delivery_id: "deliv_opened_mention", payload: payload)
+
+    assert_equal :ignored, result.status
+    assert_nil result.instruction
   end
 
   test "issue_comment with /review slash command starts a new Quest" do

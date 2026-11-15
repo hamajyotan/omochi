@@ -18,7 +18,7 @@ Phase 5 として、GitHub Pull Request に対するコードレビュー依頼�
    - `X-GitHub-Delivery`（UUID）を `source_event_id` として永続化し、重複配信を安全に除外する。
 3. **PR レビュー依頼の対象判定**:
    - `pull_request` イベントの `action: "review_requested"` において、`requested_reviewer.login` が `omochi`（または設定された App スラッグ）と一致する場合に反応する。
-   - PR コメント（`issue_comment`）または PR 作成本文において、`@omochi-agent` や `@omochi` メンションに加えて、スラッシュコマンド `/review` または `/omochi` が含まれる場合にも自動で新規 Quest を起票（または既存 Quest に指示を追加）する。
+   - PR コメント（`issue_comment`）または PR 作成本文において、スラッシュコマンド `/review` または `/omochi` が含まれる場合に自動で新規 Quest を起票（または既存 Quest に指示を追加）する。`@omochi-agent` などのアカウントメンションは反応対象外とし、スラッシュコマンドのみをトリガーとする。
    - 同一 PR への新しいコミット push（`action: "synchronize"`）時は、すでに Quest が存在する場合にのみ再レビュー指示をキューイングする。
 4. **結果の反映**:
    - `QuestExecution` の完了時、`ExternalResource` が GitHub PR の場合は GitHub 公式の Pull Request Review API（`POST /repos/{owner}/{repo}/pulls/{number}/reviews`、`event: "COMMENT"`）を用いてレビューサマリを投稿する。Issue の場合は Issue Comment API で投稿する。

@@ -43,7 +43,7 @@ module Omochi
 
             process_pr_review_request(delivery_id, pr, repo)
           when "opened", "reopened"
-            return ignored unless mentions_omochi?(pr["body"])
+            return ignored unless has_slash_command?(pr["body"])
 
             process_pr_review_request(delivery_id, pr, repo)
           when "synchronize"
@@ -61,16 +61,12 @@ module Omochi
           login.casecmp?(configured_slug) || login.casecmp?("omochi") || login.casecmp?("omochi-agent")
         end
 
-        def mentions_omochi?(text)
+        SLASH_COMMAND_PATTERN = /(?:\A|\s|[^\w])\/(?:review|omochi)\b/i
+
+        def has_slash_command?(text)
           return false if text.blank?
 
-          slug = (Omochi::Settings.dig(:github, :app_slug) || "omochi").to_s
-          patterns = [
-            /@#{Regexp.escape(slug)}(?:\[bot\])?(?:\s|\z|[^\w-])/i,
-            /@omochi(?:-agent)?(?:\[bot\])?(?:\s|\z|[^\w-])/i,
-            /(?:\A|\s|[^\w])\/(?:review|omochi)\b/i
-          ]
-          patterns.any? { |pat| text.match?(pat) }
+          text.match?(SLASH_COMMAND_PATTERN)
         end
 
         def process_pr_review_request(delivery_id, pr, repo)
@@ -163,6 +159,7 @@ module Omochi
           )
           body = comment["body"].to_s.strip
           return ignored if body.empty?
+          return ignored unless has_slash_command?(body)
 
           if resource
             instruction = resource.quest.receive_instruction!(
@@ -173,8 +170,6 @@ module Omochi
             )
             Result.new(status: :accepted, instruction: instruction, created_quest: false, duplicate: false)
           else
-            return ignored unless mentions_omochi?(body)
-
             existing = QuestInstruction.find_duplicate(source_platform: "github", source_event_id: delivery_id)
             return Result.new(status: :duplicate, instruction: existing, created_quest: false, duplicate: true) if existing
 
