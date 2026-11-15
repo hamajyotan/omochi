@@ -57,12 +57,24 @@ Mock Agent であっても、ホスト内プロセスとして動かすだけで
 ### Phase 5: GitHub 連携（MVP 後）
 
 - 単一 repository の設定
-- GitHub Webhook
+- GitHub Webhook（署名検証と重複排除）
 - Issue / PR と Quest の関連付け
-- marker の読み書き
+- PR レビュー起動（スラッシュコマンド `/review` / `/omochi`）
+- Pull Request Review API による結果返信
 - Slack から始まった Quest と GitHub リソースの相互関連付け
 
-### Phase 6: 実 Agent SDK の統合（MVP 後）
+### Phase 6: Dashboard 認証の刷新（MVP 後）
+
+- 認証方式の選定（GitHub OAuth / Google OAuth / Cloudflare Access / Slack 認証 等の比較・決定）
+- 認可ポリシーの設計（許可ユーザーリスト、Organization 制限、メールドメイン制限など）
+- 認証機構の実装・導入（Rails 内 OAuth またはエッジ/プロキシ層による保護）
+- Webhook エンドポイント（`/webhooks/github` 等）の認証除外・署名検証の維持
+- ログイン・セッション管理・ログアウト・認可外アクセスの遮断テスト
+- 本番環境での Basic 認証撤廃と SSO 移行
+
+完了の目安：Nginx の Basic 認証を撤廃し、許可されたメンバーのみが SSO で安全に Dashboard へログイン・操作できる。
+
+### Phase 7: 実 Agent SDK の統合（MVP 後）
 
 - Claude / Codex / その他候補の評価
 - Agent SDK の Session / resume / event / tool model の確認
