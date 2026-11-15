@@ -19,6 +19,17 @@ from datetime import datetime, timezone
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
+# Ensure HOME and app data directories point to a writable location
+if not os.environ.get("HOME") or os.environ.get("HOME") == "/":
+    os.environ["HOME"] = "/home/agent"
+
+HOME_DIR = os.environ["HOME"]
+APP_DATA_DIR = os.path.join(HOME_DIR, ".gemini", "antigravity")
+try:
+    os.makedirs(APP_DATA_DIR, exist_ok=True)
+except Exception:
+    pass
+
 WORKSPACE_DIR = os.environ.get("OMOCHI_WORKSPACE", "/workspace")
 INSTRUCTION_FILE = os.path.join(WORKSPACE_DIR, ".omochi_instruction.json")
 
@@ -66,10 +77,17 @@ async def main():
             "and testing the codebase. Be concise, precise, and provide a clear summary of your findings or changes."
         )
 
-        config = LocalAgentConfig(
-            system_instructions=system_instructions,
-            capabilities=CapabilitiesConfig(),
-        )
+        try:
+            config = LocalAgentConfig(
+                system_instructions=system_instructions,
+                capabilities=CapabilitiesConfig(),
+                app_data_dir=APP_DATA_DIR,
+            )
+        except TypeError:
+            config = LocalAgentConfig(
+                system_instructions=system_instructions,
+                capabilities=CapabilitiesConfig(),
+            )
 
         emit("progress", message="Antigravity Agent initialized with workspace capabilities.")
 

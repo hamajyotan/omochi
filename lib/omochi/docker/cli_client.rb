@@ -40,7 +40,8 @@ module Omochi
           "--name", name.to_s,
           "--network", network.to_s,
           "--read-only",
-          "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
+          "--tmpfs", "/tmp:rw,nosuid,mode=1777,size=256m",
+          "--tmpfs", "/home/agent:rw,nosuid,mode=1777,size=256m",
           "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges",
           "--memory", memory.to_s,
@@ -52,7 +53,8 @@ module Omochi
           "--workdir", CONTAINER_WORKSPACE_PATH
         ]
 
-        env.each do |key, value|
+        merged_env = { "HOME" => "/home/agent" }.merge(env)
+        merged_env.each do |key, value|
           args.push("--env", "#{key}=#{value}")
         end
 

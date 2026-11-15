@@ -26,6 +26,10 @@ class Omochi::Docker::CliClientTest < ActiveSupport::TestCase
     assert_includes captured_args, "--network"
     assert_equal "none", captured_args[captured_args.index("--network") + 1]
     assert_includes captured_args, "--read-only"
+    assert_includes captured_args, "/tmp:rw,nosuid,mode=1777,size=256m"
+    assert_includes captured_args, "/home/agent:rw,nosuid,mode=1777,size=256m"
+    assert_includes captured_args, "HOME=/home/agent"
+    assert_includes captured_args, "OMOCHI_QUEST_ID=qst_1"
     assert_includes captured_args, "--cap-drop"
     assert_equal "ALL", captured_args[captured_args.index("--cap-drop") + 1]
     assert_includes captured_args, "no-new-privileges"

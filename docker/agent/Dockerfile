@@ -12,9 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Google Antigravity Python SDK
 RUN pip install --no-cache-dir google-antigravity
 
-# Create workspace directory
-RUN mkdir -p /workspace /opt/omochi && chmod 777 /workspace /opt/omochi
+# Create workspace and home directories with wide permissions for non-root runtime
+RUN mkdir -p /workspace /opt/omochi /home/agent && chmod 777 /workspace /opt/omochi /home/agent
 
+ENV HOME=/home/agent
 WORKDIR /workspace
 
 # Container is started non-root by DockerRunner (--user uid:gid)
