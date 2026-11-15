@@ -44,6 +44,34 @@ class Omochi::Slack::WebClientTest < ActiveSupport::TestCase
     assert_equal({ "channel" => "C123", "thread_ts" => "1700000000.000100", "text" => "Hello" }, captured[:body])
   end
 
+  test "add_reaction and remove_reaction call reactions endpoints and ignore already_reacted/no_reaction" do
+    calls = []
+    requester = ->(uri, token:, body:) do
+      calls << { uri: uri.to_s, token: token, body: JSON.parse(body) }
+      if uri.to_s.end_with?("reactions.add")
+        FakeResponse.new("200", '{"ok":false,"error":"already_reacted"}', {})
+      else
+        FakeResponse.new("200", '{"ok":false,"error":"no_reaction"}', {})
+      end
+    end
+
+    client = Omochi::Slack::WebClient.new(
+      bot_token: "xoxb-bot",
+      app_token: "xapp-socket",
+      http_requester: requester
+    )
+
+    add_res = client.add_reaction(channel: "C123", timestamp: "1700000000.000100", name: "eyes")
+    rem_res = client.remove_reaction(channel: "C123", timestamp: "1700000000.000100", name: "eyes")
+
+    assert_equal "already_reacted", add_res["error"]
+    assert_equal "no_reaction", rem_res["error"]
+    assert_equal "https://slack.com/api/reactions.add", calls[0][:uri]
+    assert_equal({ "channel" => "C123", "timestamp" => "1700000000.000100", "name" => "eyes" }, calls[0][:body])
+    assert_equal "https://slack.com/api/reactions.remove", calls[1][:uri]
+    assert_equal({ "channel" => "C123", "timestamp" => "1700000000.000100", "name" => "eyes" }, calls[1][:body])
+  end
+
   test "raises RateLimitedError on HTTP 429 and ApiError on ok:false" do
     rate_limited = Omochi::Slack::WebClient.new(
       bot_token: "xoxb-bot",

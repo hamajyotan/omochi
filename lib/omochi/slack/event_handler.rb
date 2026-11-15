@@ -58,9 +58,10 @@ module Omochi
             source_platform: "slack",
             source_event_id: event_id,
             external_resource: resource,
+            metadata: { "slack_message_ts" => ts },
             enqueue: false
           )
-          enqueue_receipt_notification(instruction, created_quest: false)
+          enqueue_receipt_reaction(instruction)
           instruction.quest.enqueue_processing
           Result.new(status: :accepted, instruction: instruction, created_quest: false, duplicate: false)
         else
@@ -75,9 +76,10 @@ module Omochi
               scope_key: scope_key,
               external_id: thread_ts
             },
+            metadata: { "slack_message_ts" => ts },
             enqueue: false
           )
-          enqueue_receipt_notification(instruction, created_quest: true)
+          enqueue_receipt_reaction(instruction)
           instruction.quest.enqueue_processing
           Result.new(status: :accepted, instruction: instruction, created_quest: true, duplicate: false)
         end
@@ -139,18 +141,11 @@ module Omochi
           first_line.truncate(80).presence || "Slack Quest"
         end
 
-        def enqueue_receipt_notification(instruction, created_quest:)
+        def enqueue_receipt_reaction(instruction)
           resource = instruction.external_resource
           return unless resource
 
-          quest_id = instruction.quest.public_id
-          text =
-            if created_quest
-              "🍡 Quest created: `#{quest_id}` (Instruction ##{instruction.sequence} queued)"
-            else
-              "🍡 Instruction ##{instruction.sequence} queued for `#{quest_id}`"
-            end
-          SlackNotificationJob.perform_later(resource, text)
+          SlackReactionJob.perform_later(resource, instruction.slack_message_ts, "add", "eyes")
         end
     end
   end

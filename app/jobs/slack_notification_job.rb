@@ -14,16 +14,25 @@ class SlackNotificationJob < ApplicationJob
     Rails.error.report(error)
   end
 
-  def perform(external_resource, text)
+  def perform(external_resource, text, remove_reaction_ts: nil)
     return unless external_resource.platform == "slack" && external_resource.resource_type == "thread"
 
     channel = external_resource.scope_key.to_s.split("/", 2).last
     return if channel.blank?
 
-    Omochi::Slack.build_web_client.post_message(
+    client = Omochi::Slack.build_web_client
+    client.post_message(
       channel: channel,
       thread_ts: external_resource.external_id,
       text: text
     )
+
+    if remove_reaction_ts.present?
+      begin
+        client.remove_reaction(channel: channel, timestamp: remove_reaction_ts, name: "eyes")
+      rescue Omochi::Slack::Error => e
+        Rails.error.report(e)
+      end
+    end
   end
 end

@@ -24,14 +24,14 @@ module Quest::InstructionQueue
     # Creates a new Quest together with its first instruction.
     # Returns the QuestInstruction (use #quest to get the Quest). If the source
     # event was already accepted, returns the previously accepted instruction.
-    def start!(title:, body:, source_platform:, source_event_id: nil, external_resource: nil, enqueue: true)
+    def start!(title:, body:, source_platform:, source_event_id: nil, external_resource: nil, metadata: {}, enqueue: true)
       instruction = QuestInstruction.find_duplicate(source_platform:, source_event_id:)
       return instruction if instruction
 
       instruction = transaction do
         quest = create!(title:)
         resource = quest.external_resources.create!(external_resource) if external_resource
-        quest.send(:append_instruction!, body:, source_platform:, source_event_id:, external_resource: resource)
+        quest.send(:append_instruction!, body:, source_platform:, source_event_id:, external_resource: resource, metadata:)
       end
       instruction.quest.broadcast_dashboard_updates
       instruction.quest.enqueue_processing if enqueue
@@ -43,7 +43,7 @@ module Quest::InstructionQueue
 
   # Accepts a follow-up instruction for this Quest.
   # Returns the QuestInstruction; duplicates return the earlier instruction.
-  def receive_instruction!(body:, source_platform:, source_event_id: nil, external_resource: nil, enqueue: true)
+  def receive_instruction!(body:, source_platform:, source_event_id: nil, external_resource: nil, metadata: {}, enqueue: true)
     instruction = QuestInstruction.find_duplicate(source_platform:, source_event_id:)
     return instruction if instruction
 
@@ -52,7 +52,7 @@ module Quest::InstructionQueue
       raise InstructionRejected, "Quest #{public_id} is #{status}" if cancelled?
 
       update!(status: :pending) if REOPENABLE_STATUSES.include?(status)
-      append_instruction!(body:, source_platform:, source_event_id:, external_resource:)
+      append_instruction!(body:, source_platform:, source_event_id:, external_resource:, metadata:)
     end
     broadcast_dashboard_updates
     enqueue_processing if enqueue
@@ -141,13 +141,14 @@ module Quest::InstructionQueue
   end
 
   private
-    def append_instruction!(body:, source_platform:, source_event_id:, external_resource:)
+    def append_instruction!(body:, source_platform:, source_event_id:, external_resource:, metadata: {})
       instructions.create!(
         sequence: (instructions.maximum(:sequence) || 0) + 1,
         body:,
         source_platform:,
         source_event_id:,
         external_resource:,
+        metadata: metadata || {},
         received_at: Time.current
       )
     end

@@ -2,12 +2,14 @@
 module Omochi
   module Slack
     class FakeWebClient
-      attr_reader :posted_messages, :socket_open_count
+      attr_reader :posted_messages, :reactions_added, :reactions_removed, :socket_open_count
       attr_accessor :wss_url, :on_post_message
 
       def initialize(wss_url: "wss://fake.slack.example/link")
         @wss_url = wss_url
         @posted_messages = []
+        @reactions_added = []
+        @reactions_removed = []
         @socket_open_count = 0
       end
 
@@ -22,6 +24,18 @@ module Omochi
         msg = { channel: channel.to_s, thread_ts: thread_ts.to_s, text: text.to_s }
         @posted_messages << msg
         { "ok" => true, "ts" => "1700000000.000200", "message" => msg }
+      end
+
+      def add_reaction(channel:, timestamp:, name:)
+        reaction = { channel: channel.to_s, timestamp: timestamp.to_s, name: name.to_s }
+        @reactions_added << reaction
+        { "ok" => true }
+      end
+
+      def remove_reaction(channel:, timestamp:, name:)
+        reaction = { channel: channel.to_s, timestamp: timestamp.to_s, name: name.to_s }
+        @reactions_removed << reaction
+        { "ok" => true }
       end
     end
   end

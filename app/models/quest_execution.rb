@@ -71,7 +71,6 @@ class QuestExecution < ApplicationRecord
       attrs[:cleanup_status] = "pending"
     end
     transition!(from: %w[queued preparing], to: :running, **attrs)
-    notify_slack!("🚀 Running instruction ##{instruction.sequence} for `#{quest.public_id}`...")
     quest.broadcast_dashboard_updates
   end
 
@@ -135,7 +134,10 @@ class QuestExecution < ApplicationRecord
       error_message: reason
     )
     instruction.update!(status: :cancelled)
-    notify_slack!("🛑 Instruction ##{instruction.sequence} cancelled for `#{quest.public_id}`.")
+    notify_slack!(
+      "🛑 Instruction ##{instruction.sequence} cancelled for `#{quest.public_id}`.",
+      remove_reaction_ts: instruction.slack_message_ts
+    )
     true
   end
 
@@ -197,13 +199,12 @@ class QuestExecution < ApplicationRecord
     def notify_slack_finished!
       text =
         if succeeded?
-          summary = result_summary.presence || "Completed."
-          "✅ Instruction ##{instruction.sequence} completed for `#{quest.public_id}`: #{summary}"
+          result_summary.presence || "Completed."
         elsif failed?
           reason = error_message.presence || error_kind || "unknown error"
           "⚠️ Instruction ##{instruction.sequence} failed for `#{quest.public_id}` (#{error_kind}): #{reason}"
         end
-      notify_slack!(text) if text
+      notify_slack!(text, remove_reaction_ts: instruction.slack_message_ts) if text
       notify_github_finished!
     end
 
@@ -231,11 +232,11 @@ class QuestExecution < ApplicationRecord
       Rails.error.report(e, context: { execution_id: id })
     end
 
-    def notify_slack!(text)
+    def notify_slack!(text, remove_reaction_ts: nil)
       resource = instruction.external_resource
       return unless resource&.platform == "slack" && resource.resource_type == "thread"
 
-      SlackNotificationJob.perform_later(resource, text)
+      SlackNotificationJob.perform_later(resource, text, remove_reaction_ts: remove_reaction_ts)
     rescue StandardError => e
       Rails.error.report(e, context: { execution_id: id })
     end

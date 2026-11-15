@@ -39,6 +39,10 @@ class QuestInstruction < ApplicationRecord
     RETRYABLE_STATUSES.include?(status)
   end
 
+  def slack_message_ts
+    (metadata.is_a?(Hash) && metadata["slack_message_ts"].presence) || external_resource&.external_id
+  end
+
   # Re-queues a failed or cancelled instruction so a new QuestExecution will
   # process it while keeping all past QuestExecutions intact.
   def retry!

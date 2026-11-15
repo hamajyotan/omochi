@@ -150,25 +150,23 @@ class Omochi::Slack::EventHandlerTest < ActiveSupport::TestCase
     end
   end
 
-  test "end-to-end Slack mention runs Mock Agent and replies receipt, start, and completion to the thread" do
+  test "end-to-end Slack mention adds eyes reaction, runs Mock Agent, replies only the result, and removes eyes reaction" do
     perform_enqueued_jobs do
       @handler.handle_envelope(build_envelope(event_id: "EvE2E", text: "<@U999BOT> Ship the feature"))
     end
 
     quest = Quest.last
     assert quest.completed?
-    assert_equal 3, @fake_slack_client.posted_messages.size
 
-    receipt, started, finished = @fake_slack_client.posted_messages.map { |m| m[:text] }
-    assert_includes receipt, "Quest created: `#{quest.public_id}`"
-    assert_includes started, "Running instruction #1 for `#{quest.public_id}`"
-    assert_includes finished, "Instruction #1 completed for `#{quest.public_id}`"
-    assert_includes finished, "Ship the feature"
+    assert_equal [ { channel: "C200", timestamp: "1700000000.000100", name: "eyes" } ], @fake_slack_client.reactions_added
+    assert_equal [ { channel: "C200", timestamp: "1700000000.000100", name: "eyes" } ], @fake_slack_client.reactions_removed
 
-    @fake_slack_client.posted_messages.each do |msg|
-      assert_equal "C200", msg[:channel]
-      assert_equal "1700000000.000100", msg[:thread_ts]
-    end
+    assert_equal 1, @fake_slack_client.posted_messages.size
+    msg = @fake_slack_client.posted_messages.sole
+    assert_equal "C200", msg[:channel]
+    assert_equal "1700000000.000100", msg[:thread_ts]
+    assert_includes msg[:text], "Ship the feature"
+    assert_not_includes msg[:text], "Instruction #1 completed for"
   end
 
   test "Slack notification failure does not fail the QuestExecution" do

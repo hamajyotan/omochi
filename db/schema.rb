@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_14_041247) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_15_143500) do
   create_table "external_resources", force: :cascade do |t|
     t.integer "quest_id", null: false
     t.string "platform", null: false
@@ -70,6 +70,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_14_041247) do
     t.datetime "received_at", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.json "metadata", default: {}, null: false
     t.index ["external_resource_id"], name: "index_quest_instructions_on_external_resource_id"
     t.index ["quest_id", "sequence"], name: "index_quest_instructions_on_quest_id_and_sequence", unique: true
     t.index ["quest_id", "status", "sequence"], name: "index_quest_instructions_on_quest_id_and_status_and_sequence"

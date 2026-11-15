@@ -47,12 +47,40 @@ module Omochi
         )
       end
 
+      # Adds an emoji reaction (e.g. "eyes") to a message. Treats "already_reacted" as success.
+      def add_reaction(channel:, timestamp:, name:)
+        post_json(
+          "reactions.add",
+          token: resolve(@bot_token),
+          payload: {
+            channel: channel.to_s,
+            timestamp: timestamp.to_s,
+            name: name.to_s
+          },
+          ignored_errors: %w[already_reacted]
+        )
+      end
+
+      # Removes an emoji reaction from a message. Treats "no_reaction" as success.
+      def remove_reaction(channel:, timestamp:, name:)
+        post_json(
+          "reactions.remove",
+          token: resolve(@bot_token),
+          payload: {
+            channel: channel.to_s,
+            timestamp: timestamp.to_s,
+            name: name.to_s
+          },
+          ignored_errors: %w[no_reaction]
+        )
+      end
+
       private
         def resolve(value_or_proc)
           value_or_proc.respond_to?(:call) ? value_or_proc.call : value_or_proc
         end
 
-        def post_json(endpoint, token:, payload:)
+        def post_json(endpoint, token:, payload:, ignored_errors: [])
           uri = URI.parse("#{@base_url}/#{endpoint}")
           response = @http_requester.call(uri, token: token, body: JSON.generate(payload))
 
@@ -66,7 +94,7 @@ module Omochi
           end
 
           parsed = JSON.parse(response.body.to_s)
-          unless parsed["ok"] == true
+          unless parsed["ok"] == true || ignored_errors.include?(parsed["error"].to_s)
             raise ApiError, "Slack API error on #{endpoint}: #{parsed['error'] || 'unknown_error'}"
           end
 

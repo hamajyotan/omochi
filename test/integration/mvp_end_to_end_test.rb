@@ -52,12 +52,13 @@ class MvpEndToEndTest < ActionDispatch::IntegrationTest
     assert_equal [ execution.container_id ], @fake_docker_client.removed_containers
     assert_equal %w[started progress log completed], execution.events.pluck(:event_type)
 
-    # Verify Slack thread replies (receipt with Quest ID, start, completion)
+    # Verify Slack reaction (eyes added on receipt and removed on completion) and clean reply
+    assert_equal [ { channel: "C_DEV", timestamp: "1700000100.000001", name: "eyes" } ], @fake_slack_client.reactions_added
+    assert_equal [ { channel: "C_DEV", timestamp: "1700000100.000001", name: "eyes" } ], @fake_slack_client.reactions_removed
+
     texts = @fake_slack_client.posted_messages.map { |m| m[:text] }
-    assert_equal 3, texts.size
-    assert_includes texts[0], quest.public_id
-    assert_includes texts[1], "Running instruction #1"
-    assert_includes texts[2], "Implement the login page"
+    assert_equal 1, texts.size
+    assert_includes texts[0], "Implement the login page"
 
     # Verify Dashboard reflects the Quest, ExternalResource, Instruction, Execution, and Events
     get quest_path(quest)
