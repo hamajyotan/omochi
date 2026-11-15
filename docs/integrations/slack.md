@@ -6,8 +6,9 @@
 
 主な機能：
 
-- Slack App へのメンション受信
-- メンションが属する Thread の特定
+- Slack App へのメンション受信（`app_mention`）
+- 既存 Quest Thread へのメンションなし返信の受信（`message` イベントのうち、既存 `ExternalResource` に紐づく `thread_ts` を持つもの）
+- メンションまたは返信が属する Thread の特定
 - Quest の作成または既存 Quest への関連付け
 - QuestInstruction の登録
 - Thread への受付・進捗・完了・失敗の返信

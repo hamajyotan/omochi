@@ -199,6 +199,20 @@ async def main():
     quest_id = instruction.get("quest_public_id", "unknown")
     sequence = instruction.get("instruction_sequence", 1)
     body = instruction.get("body", "")
+    history = instruction.get("history") or []
+
+    prompt = body
+    if history:
+        history_lines = ["Previous conversation history in this Quest:"]
+        for entry in history:
+            seq = entry.get("sequence")
+            user_msg = (entry.get("body") or "").strip()
+            agent_msg = (entry.get("result_summary") or "").strip()
+            history_lines.append(f"[Instruction #{seq} (User)]:\n{user_msg}")
+            if agent_msg:
+                history_lines.append(f"[Response #{seq} (omochi)]:\n{agent_msg}")
+        history_lines.append(f"\nCurrent instruction (#{sequence}):\n{body}")
+        prompt = "\n\n".join(history_lines)
 
     emit("started", message=f"Antigravity Agent starting for {quest_id} (instruction #{sequence})")
 
@@ -241,7 +255,7 @@ async def main():
                             "progress",
                             message=f"Analyzing instruction #{sequence} with Antigravity ({current_model}, attempt {idx}/{max_attempts})...",
                         )
-                        response = await agent.chat(body)
+                        response = await agent.chat(prompt)
                         summary = await resolve_response_text(response, step_error_handler, timeout=90.0)
                         break
                 except Exception as e:

@@ -75,6 +75,57 @@ class Omochi::Slack::EventHandlerTest < ActiveSupport::TestCase
     assert quest.reload.pending?
   end
 
+  test "attaches a non-mention thread reply (type: message) in an existing Quest thread" do
+    first = @handler.handle_envelope(build_envelope(event_id: "Ev001", ts: "1700000000.000100"))
+    quest = first.instruction.quest
+    quest.claim_next_instruction!.succeed!(result_summary: "Done")
+    assert quest.reload.completed?
+
+    follow_up = @handler.handle_envelope(
+      build_envelope(
+        event_id: "Ev002Msg",
+        ts: "1700000010.000300",
+        thread_ts: "1700000000.000100",
+        text: "Thanks! Could you also check the edge cases?",
+        extra_event: { "type" => "message" }
+      )
+    )
+
+    assert_equal :accepted, follow_up.status
+    assert_not follow_up.created_quest
+    assert_equal quest, follow_up.instruction.quest
+    assert_equal 2, follow_up.instruction.sequence
+    assert_equal "Thanks! Could you also check the edge cases?", follow_up.instruction.body
+    assert quest.reload.pending?
+  end
+
+  test "ignores non-mention thread reply in an unrelated thread and avoids duplicate when mentioning bot" do
+    first = @handler.handle_envelope(build_envelope(event_id: "Ev001", ts: "1700000000.000100"))
+    quest = first.instruction.quest
+
+    assert_no_difference [ -> { Quest.count }, -> { QuestInstruction.count } ] do
+      unrelated_thread = build_envelope(
+        event_id: "EvUnrelated",
+        ts: "1700000020.000400",
+        thread_ts: "1700000999.999999",
+        text: "Just chatting in another thread",
+        extra_event: { "type" => "message" }
+      )
+      assert_equal :ignored, @handler.handle_envelope(unrelated_thread).status
+
+      mention_as_message = build_envelope(
+        event_id: "EvDupMentionMsg",
+        ts: "1700000030.000500",
+        thread_ts: "1700000000.000100",
+        text: "<@U999BOT> Mentioning bot again",
+        extra_event: { "type" => "message" }
+      )
+      assert_equal :ignored, @handler.handle_envelope(mention_as_message).status
+    end
+
+    assert_equal 1, quest.instructions.count
+  end
+
   test "de-duplicates redelivered Slack events with the same event_id" do
     first = @handler.handle_envelope(build_envelope(event_id: "EvDup"))
 

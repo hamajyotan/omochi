@@ -71,13 +71,28 @@ class QuestExecution::DockerRunner
       workspace_dir = base_dir.join(quest.public_id)
       FileUtils.mkdir_p(workspace_dir)
 
+      prior_history = quest.instructions
+        .where("sequence < ?", instruction.sequence)
+        .in_queue_order
+        .includes(:executions)
+        .map do |inst|
+          succeeded_exec = inst.executions.select(&:succeeded?).last
+          {
+            sequence: inst.sequence,
+            source_platform: inst.source_platform,
+            body: inst.body,
+            result_summary: succeeded_exec&.result_summary
+          }
+        end
+
       payload = {
         quest_public_id: quest.public_id,
         execution_id: execution.id,
         instruction_sequence: instruction.sequence,
         source_platform: instruction.source_platform,
         body: instruction.body,
-        received_at: instruction.received_at.iso8601
+        received_at: instruction.received_at.iso8601,
+        history: prior_history
       }
       File.write(workspace_dir.join(INSTRUCTION_FILENAME), JSON.pretty_generate(payload))
       workspace_dir
