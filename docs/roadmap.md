@@ -84,6 +84,18 @@ Mock Agent であっても、ホスト内プロセスとして動かすだけで
 - Mock Agent から Antigravity 実 Agent への切り替え
 - PR レビューや Slack 指示における実 AI レビュー・自律改修の End-to-End 動作確認
 
+### Phase 8: Git ワークスペース同期と自律開発基盤（MVP 後）
+
+- **Milestone 8-1（Read-Only Git Sync & PR Review Context）**
+  - ホスト側（`omochi-worker`）での対象リポジトリの `/workspace` への clone / fetch（`.git/config` にトークンを残さない一時認証ヘッダ方式）
+  - Pull Request の head ref チェックアウトおよび `.omochi_pr.diff` / PR メタデータの `/workspace` 配置による実コードレビューの成立
+- **Milestone 8-2（Write & Autonomous PR Creation）**
+  - Quest 作業ブランチ（`omochi/<quest_public_id>` または既存 PR ブランチ）の準備
+  - Agent が `/workspace` 内で `git commit` した変更を、コンテナ終了後にホスト側が検知して自動 `git push`
+  - ホスト側での Pull Request 自動作成・`ExternalResource` 関連付け・Slack / Dashboard への通知
+- **Milestone 8-3（Workspace Cache & Lifecycle）**
+  - 共有ベアリポジトリ等による clone 高速化と古い `/workspace` のクリーンアップ
+
 ## 3. MVP の End-to-End 完了条件
 
 次の流れが一通り動作することを MVP の主要な完了条件とします。

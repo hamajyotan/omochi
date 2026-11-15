@@ -28,15 +28,16 @@
 
 - `bin/rails server`（web）、`bin/jobs`（worker）、`bin/socket`（Slack Socket Mode）の 3 プロセス構成と、Solid Queue DB 分離 + `ReconcileQuestsJob` は決定済み。
 
-## 7. Agent SDK / Agent Session（決定済み → Antigravity）
+## 7. Agent SDK / Agent Session（決定済み → [ADR 0011](decisions/0011-antigravity-agent-runtime-integration.md)）
 
 - Agent コアエンジンとして Google Antigravity（Python SDK `google-antigravity`）を採用。
 - 隔離された Docker コンテナ内で Antigravity Agent を実行し、ストリーミングイベント（思考プロセス `thoughts`・ツール実行 `tool_calls`）を omochi の JSONL プロトコルに変換してホストへ伝達する。
 - 外部サービス認証情報（Slack / GitHub）はコンテナへ渡さず、LLM 推論クレデンシャル（API キー等）のみを最小権限で渡す。
 
-## 8. GitHub 連携（決定済み → [ADR 0009](decisions/0009-github-app-pr-review-and-issue-integration.md)）
+## 8. GitHub 連携・Git ワークスペース同期（決定済み → [ADR 0009](decisions/0009-github-app-pr-review-and-issue-integration.md), [ADR 0012](decisions/0012-host-managed-git-workspace-and-pr-workflow.md)）
 
 - GitHub App 認証（RS256 JWT & Installation Token）、HMAC-SHA256 Webhook 検証、`review_requested` による PR レビュー起動、および PR Review API による結果返信は ADR 0009 で決定済み。
+- ホスト主導での `/workspace` リポジトリ展開（`.git/config` にトークンを残さない一時ヘッダ認証）、PR diff 配置、および Agent のローカル `git commit` をトリガーとしたホスト側での自動 Push & Pull Request 作成は ADR 0012 で決定済み。
 - 未決（将来拡張）：
   - 複数 repository への対応。
   - PR インラインコメント（ファイル・行単位の指摘）のサポート。
