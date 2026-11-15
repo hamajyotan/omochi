@@ -13,6 +13,9 @@ shared:
     app_slug: <%= ENV.fetch("GITHUB_APP_SLUG", "omochi") %>
     webhook_secret: <%= ENV["GITHUB_WEBHOOK_SECRET"] %>
     private_key: <%= ENV["GITHUB_PRIVATE_KEY"] %>
+    client_id: <%= ENV["GITHUB_CLIENT_ID"] %>
+    client_secret: <%= ENV["GITHUB_CLIENT_SECRET"] %>
+    allowed_users: <%= ENV["ALLOWED_GITHUB_USERS"] %>
   docker:
     image: <%= ENV.fetch("OMOCHI_AGENT_IMAGE", "ruby:4.0") %>
     memory: <%= ENV.fetch("OMOCHI_AGENT_MEMORY", "512m") %>

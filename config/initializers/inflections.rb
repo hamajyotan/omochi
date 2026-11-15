@@ -17,4 +17,5 @@
 
 ActiveSupport::Inflector.inflections(:en) do |inflect|
   inflect.acronym "GitHub"
+  inflect.acronym "OAuth"
 end

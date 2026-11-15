@@ -41,14 +41,10 @@
   - 複数 repository への対応。
   - PR インラインコメント（ファイル・行単位の指摘）のサポート。
 
-## 9. 運用・UI（MVP 範囲は決定済み → [ADR 0004](decisions/0004-dotenv-for-development.md), [ADR 0006](decisions/0006-slack-socket-mode-and-notifications.md), [ADR 0007](decisions/0007-quest-cancel-reopen-and-retry.md)）
+## 9. 運用・UI（決定済み → [ADR 0004](decisions/0004-dotenv-for-development.md), [ADR 0006](decisions/0006-slack-socket-mode-and-notifications.md), [ADR 0007](decisions/0007-quest-cancel-reopen-and-retry.md), [ADR 0010](decisions/0010-github-oauth-authentication-and-allowlist.md)）
 
+- Dashboard 認証方式は GitHub OAuth + `ALLOWED_GITHUB_USERS` によるホワイトリスト認可で決定（ADR 0010）。
 - MVP 後の検討事項：
-  - 本番公開時の Dashboard 認証方式（ロードマップ Phase 6 で決定・実装）：
-    - 候補 1: GitHub OAuth（開発者向け・自アカウントや Organization によるアクセス制御が容易）
-    - 候補 2: Google OAuth / Workspace（全社・ドメイン単位でのアクセス制御が容易）
-    - 候補 3: Cloudflare Zero Trust / Access（Rails 側に認証コードを書かずエッジで遮断・複数 IdP 切替可）
-    - 候補 4: Slack OAuth（Slack 連携メンバーの一致）
   - 長期運用時のログ・workspace 保存期間とバックアップ手順。
 
 ## 決定事項の記録

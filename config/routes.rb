@@ -20,5 +20,15 @@ Rails.application.routes.draw do
     post "github" => "github#create"
   end
 
+  # Authentication
+  get "login" => "sessions#new", as: :login
+  get "auth/github/callback" => "sessions#callback", as: :auth_github_callback
+  delete "logout" => "sessions#destroy", as: :logout
+  get "logout" => "sessions#destroy"
+
+  if Rails.env.test?
+    post "test/sign_in" => "sessions#test_sign_in", as: :test_sign_in
+  end
+
   root "quests#index"
 end

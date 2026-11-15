@@ -27,3 +27,17 @@ module ActiveSupport
     end
   end
 end
+
+class ActionDispatch::IntegrationTest
+  def auto_sign_in?
+    !is_a?(SessionsControllerTest)
+  end
+
+  setup do
+    sign_in_as if auto_sign_in?
+  end
+
+  def sign_in_as(login = "hamajyotan", name = "Takashi Sakaguchi")
+    post test_sign_in_path, params: { login: login, name: name }
+  end
+end

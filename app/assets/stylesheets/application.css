@@ -67,3 +67,22 @@ section { margin-top: 2rem; }
 .event-log { margin: .35rem 0 0; padding-left: 1.2rem; font-size: .9em; }
 .event-log__item--failed { color: #b91c1c; }
 .event-log__item--completed { color: #15803d; }
+
+/* Auth card & user menu */
+.auth-card {
+  max-width: 420px; margin: 3rem auto; padding: 2rem; background: #fff;
+  border: 1px solid var(--border); border-radius: 8px; text-align: center;
+}
+.auth-card__logo { font-size: 3rem; margin-bottom: .5rem; }
+.auth-card__header h1 { margin: 0 0 .25rem 0; font-size: 1.5rem; }
+.auth-card p { line-height: 1.5; }
+.btn--github {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  background: #24292f; color: #fff; text-decoration: none; padding: .6rem 1.2rem;
+  border-radius: 6px; font-weight: 500; margin-top: 1.5rem; width: 100%; box-sizing: border-box;
+}
+.btn--github:hover { background: #000; color: #fff; }
+
+.user-menu { display: inline-flex; align-items: center; gap: .5rem; margin-left: auto; }
+.user-menu__login { font-size: .85em; color: var(--muted); }
+.avatar { width: 24px; height: 24px; border-radius: 50%; vertical-align: middle; }
