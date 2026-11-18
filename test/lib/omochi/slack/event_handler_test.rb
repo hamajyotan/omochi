@@ -221,7 +221,8 @@ class Omochi::Slack::EventHandlerTest < ActiveSupport::TestCase
     first = @handler.handle_envelope(build_envelope(event_id: "EvImgSeed", text: "<@U999BOT> Initial task"))
     assert_equal :accepted, first.status
     quest = first.instruction.quest
-    first.instruction.executions.sole.succeed!(result_summary: "Initial done") if first.instruction.executions.any?
+    first_exec = quest.claim_next_instruction!
+    first_exec.succeed!(result_summary: "Initial done")
 
     file_url = "https://files.slack.com/files-pri/T100-F123/screenshot.png"
     @fake_slack_client.files[file_url] = "PNG_BINARY_DATA"
