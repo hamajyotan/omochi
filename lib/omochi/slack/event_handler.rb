@@ -54,6 +54,7 @@ module Omochi
         end
 
         body = extract_instruction_body(event["text"])
+        return ignored if body.start_with?("#")
 
         if resource
           instruction = resource.quest.receive_instruction!(

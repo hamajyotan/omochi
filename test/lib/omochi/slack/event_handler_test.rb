@@ -192,4 +192,28 @@ class Omochi::Slack::EventHandlerTest < ActiveSupport::TestCase
   ensure
     Rails.configuration.omochi[:slack][:team_id] = orig_team_id
   end
+
+  test "ignores messages starting with # as human comments" do
+    first = @handler.handle_envelope(build_envelope(event_id: "EvCommentSeed", text: "<@U999BOT> Initial task"))
+    assert_equal :accepted, first.status
+    quest = first.instruction.quest
+
+    assert_no_difference -> { QuestInstruction.count } do
+      reply_comment = build_envelope(
+        event_id: "EvHashReply",
+        text: "# こんにちは",
+        extra_event: { "type" => "message", "thread_ts" => "1700000000.000100", "ts" => "1700000000.000200" }
+      )
+      assert_equal :ignored, @handler.handle_envelope(reply_comment).status
+
+      mention_comment = build_envelope(
+        event_id: "EvHashMention",
+        text: "<@U999BOT> # これは無視してほしい",
+        extra_event: { "thread_ts" => "1700000000.000100", "ts" => "1700000000.000300" }
+      )
+      assert_equal :ignored, @handler.handle_envelope(mention_comment).status
+    end
+
+    assert_equal 1, quest.instructions.count
+  end
 end
