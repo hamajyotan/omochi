@@ -224,6 +224,7 @@ async def main():
     body = instruction.get("body", "")
     history = instruction.get("history") or []
     git_context = instruction.get("git_context") or {}
+    attachments = instruction.get("attachments") or []
 
     prompt_parts = []
     if git_context:
@@ -271,6 +272,17 @@ async def main():
             if agent_msg:
                 history_lines.append(f"[Response #{seq} (omochi)]:\n{agent_msg}")
         prompt_parts.append("\n\n".join(history_lines))
+
+    if attachments:
+        att_lines = ["Attached image files saved inside `/workspace` (do NOT commit `.omochi_attachments/`):"]
+        for att in attachments:
+            att_path = att.get("path", "")
+            att_name = att.get("name", "")
+            att_mime = att.get("mimetype", "")
+            if att_path:
+                att_lines.append(f"- `{att_path}` ({att_name}, {att_mime})")
+        att_lines.append("Inspect these attached image files directly if needed to understand the user's request.")
+        prompt_parts.append("\n".join(att_lines))
 
     if prompt_parts:
         prompt_parts.append(f"Current instruction (#{sequence}):\n{body}")

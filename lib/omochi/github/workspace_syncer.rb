@@ -356,7 +356,7 @@ module Omochi
           FileUtils.mkdir_p(info_dir)
           exclude_file = File.join(info_dir, "exclude")
           existing = File.exist?(exclude_file) ? File.read(exclude_file) : ""
-          entries = [ ".omochi_instruction.json", PR_DIFF_FILENAME ]
+          entries = [ ".omochi_instruction.json", PR_DIFF_FILENAME, ".omochi_attachments" ]
           missing = entries.reject { |e| existing.lines.map(&:strip).include?(e) }
           return if missing.empty?
 

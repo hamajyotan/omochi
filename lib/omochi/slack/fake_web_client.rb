@@ -2,14 +2,16 @@
 module Omochi
   module Slack
     class FakeWebClient
-      attr_reader :posted_messages, :reactions_added, :reactions_removed, :socket_open_count
-      attr_accessor :wss_url, :on_post_message
+      attr_reader :posted_messages, :reactions_added, :reactions_removed, :socket_open_count, :downloaded_urls
+      attr_accessor :wss_url, :on_post_message, :files
 
       def initialize(wss_url: "wss://fake.slack.example/link")
         @wss_url = wss_url
         @posted_messages = []
         @reactions_added = []
         @reactions_removed = []
+        @downloaded_urls = []
+        @files = {}
         @socket_open_count = 0
       end
 
@@ -36,6 +38,11 @@ module Omochi
         reaction = { channel: channel.to_s, timestamp: timestamp.to_s, name: name.to_s }
         @reactions_removed << reaction
         { "ok" => true }
+      end
+
+      def download_file(url, max_bytes: 10 * 1024 * 1024)
+        @downloaded_urls << url.to_s
+        @files[url.to_s] || "fake-image-bytes"
       end
     end
   end

@@ -9,6 +9,9 @@ module Omochi
     class EventHandler
       MENTION_PREFIX = /\A(?:\s*<@[A-Z0-9_]+>\s*)+/
       IGNORED_SUBTYPES = %w[bot_message message_changed message_deleted message_replied].freeze
+      ALLOWED_MESSAGE_SUBTYPES = [ "", "file_share" ].freeze
+      MAX_ATTACHMENTS = 5
+      MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
       Result = Data.define(:status, :instruction, :created_quest, :duplicate)
 
@@ -53,8 +56,12 @@ module Omochi
           return Result.new(status: :duplicate, instruction: existing, created_quest: false, duplicate: true)
         end
 
-        body = extract_instruction_body(event["text"])
+        attachments = extract_attachments(event)
+        body = extract_instruction_body(event["text"], has_attachments: attachments.any?)
         return ignored if body.start_with?("#")
+
+        metadata = { "slack_message_ts" => ts }
+        metadata["attachments"] = attachments if attachments.any?
 
         if resource
           instruction = resource.quest.receive_instruction!(
@@ -62,7 +69,7 @@ module Omochi
             source_platform: "slack",
             source_event_id: event_id,
             external_resource: resource,
-            metadata: { "slack_message_ts" => ts },
+            metadata: metadata,
             enqueue: false
           )
           enqueue_receipt_reaction(instruction)
@@ -80,7 +87,7 @@ module Omochi
               scope_key: scope_key,
               external_id: thread_ts
             },
-            metadata: { "slack_message_ts" => ts },
+            metadata: metadata,
             enqueue: false
           )
           enqueue_receipt_reaction(instruction)
@@ -103,7 +110,7 @@ module Omochi
           when "app_mention"
             true
           when "message"
-            event["subtype"].blank? &&
+            ALLOWED_MESSAGE_SUBTYPES.include?(event["subtype"].to_s) &&
               event["thread_ts"].present? &&
               !mentions_bot?(event, payload)
           else
@@ -134,10 +141,38 @@ module Omochi
           ids.uniq
         end
 
-        def extract_instruction_body(raw_text)
+        def extract_instruction_body(raw_text, has_attachments: false)
           cleaned = raw_text.to_s.sub(MENTION_PREFIX, "").strip
           cleaned = raw_text.to_s.strip if cleaned.empty?
+          return "(attached image)" if cleaned.empty? && has_attachments
+
           cleaned.presence || "(empty mention)"
+        end
+
+        def extract_attachments(event)
+          files = event["files"]
+          return [] unless files.is_a?(Array)
+
+          files.filter_map do |file|
+            next unless file.is_a?(Hash)
+
+            mimetype = file["mimetype"].to_s
+            next unless mimetype.start_with?("image/")
+
+            size = file["size"].to_i
+            next if size > MAX_ATTACHMENT_BYTES
+
+            url = (file["url_private_download"].presence || file["url_private"]).to_s
+            next if url.blank?
+
+            {
+              "id" => file["id"].to_s,
+              "name" => file["name"].presence || "image.png",
+              "mimetype" => mimetype,
+              "size" => size,
+              "url" => url
+            }
+          end.first(MAX_ATTACHMENTS)
         end
 
         def build_title(body)

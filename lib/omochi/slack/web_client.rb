@@ -75,6 +75,57 @@ module Omochi
         )
       end
 
+      # Downloads a private Slack file (e.g. image attachment) using the Bot Token.
+      # Authorization header is only sent to `*.slack.com` hosts.
+      def download_file(url, max_bytes: 10 * 1024 * 1024, max_redirects: 3)
+        current_url = url.to_s
+        token = resolve(@bot_token)
+
+        (max_redirects + 1).times do
+          uri = URI.parse(current_url)
+          raise ApiError, "Invalid Slack file URL scheme" unless uri.is_a?(URI::HTTPS)
+
+          headers = {}
+          if uri.host&.end_with?(".slack.com") || uri.host == "slack.com"
+            headers["Authorization"] = "Bearer #{token}"
+          end
+
+          response = Net::HTTP.start(
+            uri.host,
+            uri.port,
+            use_ssl: true,
+            open_timeout: OPEN_TIMEOUT_SECONDS,
+            read_timeout: READ_TIMEOUT_SECONDS
+          ) do |http|
+            req = Net::HTTP::Get.new(uri.request_uri)
+            headers.each { |k, v| req[k] = v }
+            http.request(req)
+          end
+
+          if response.is_a?(Net::HTTPRedirection) && response["location"].present?
+            current_url = URI.join(uri, response["location"]).to_s
+            next
+          end
+
+          unless response.code.to_i.between?(200, 299)
+            raise ApiError, "Slack file download failed: HTTP #{response.code}"
+          end
+
+          body = response.body.to_s
+          if body.bytesize > max_bytes
+            raise ApiError, "Slack file exceeds maximum allowed size (#{body.bytesize} > #{max_bytes})"
+          end
+
+          return body
+        end
+
+        raise ApiError, "Too many redirects downloading Slack file"
+      rescue URI::InvalidURIError => e
+        raise ApiError, "Invalid Slack file URL: #{e.message}"
+      rescue SocketError, SystemCallError, IOError, Net::OpenTimeout, Net::ReadTimeout => e
+        raise ApiError, "Slack file download network error: #{e.class}: #{e.message}"
+      end
+
       private
         def resolve(value_or_proc)
           value_or_proc.respond_to?(:call) ? value_or_proc.call : value_or_proc

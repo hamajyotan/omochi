@@ -216,4 +216,50 @@ class Omochi::Slack::EventHandlerTest < ActiveSupport::TestCase
 
     assert_equal 1, quest.instructions.count
   end
+
+  test "accepts thread file_share messages with image attachments and downloads them in DockerRunner" do
+    first = @handler.handle_envelope(build_envelope(event_id: "EvImgSeed", text: "<@U999BOT> Initial task"))
+    assert_equal :accepted, first.status
+    quest = first.instruction.quest
+    first.instruction.executions.sole.succeed!(result_summary: "Initial done") if first.instruction.executions.any?
+
+    file_url = "https://files.slack.com/files-pri/T100-F123/screenshot.png"
+    @fake_slack_client.files[file_url] = "PNG_BINARY_DATA"
+
+    reply_with_image = build_envelope(
+      event_id: "EvImgReply",
+      text: "",
+      extra_event: {
+        "type" => "message",
+        "subtype" => "file_share",
+        "thread_ts" => "1700000000.000100",
+        "ts" => "1700000000.000200",
+        "files" => [
+          {
+            "id" => "F123",
+            "name" => "screenshot.png",
+            "mimetype" => "image/png",
+            "size" => 1024,
+            "url_private_download" => file_url
+          }
+        ]
+      }
+    )
+
+    result = @handler.handle_envelope(reply_with_image)
+    assert_equal :accepted, result.status
+    assert_equal "(attached image)", result.instruction.body
+    assert_equal 1, result.instruction.metadata["attachments"].size
+    assert_equal file_url, result.instruction.metadata["attachments"].first["url"]
+
+    execution = quest.claim_next_instruction!
+    runner = QuestExecution::DockerRunner.new(docker_client: @fake_docker_client, workspace_syncer: nil)
+    runner.run(execution)
+
+    assert_includes @fake_slack_client.downloaded_urls, file_url
+    payload = JSON.parse(File.read(File.join(execution.reload.workspace_path, ".omochi_instruction.json")))
+    assert_equal 1, payload["attachments"].size
+    assert_equal "/workspace/.omochi_attachments/2_1_screenshot.png", payload["attachments"].first["path"]
+    assert_equal "PNG_BINARY_DATA", File.binread(File.join(execution.workspace_path, ".omochi_attachments", "2_1_screenshot.png"))
+  end
 end

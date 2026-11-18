@@ -18,6 +18,7 @@ require "fileutils"
 class QuestExecution::DockerRunner
   HEARTBEAT_INTERVAL_SECONDS = 5.0
   INSTRUCTION_FILENAME = ".omochi_instruction.json".freeze
+  ATTACHMENTS_DIRNAME = ".omochi_attachments".freeze
 
   class_attribute :docker_client_factory, default: -> { Omochi::Docker::CliClient.new }
 
@@ -88,6 +89,7 @@ class QuestExecution::DockerRunner
       FileUtils.mkdir_p(workspace_dir)
 
       git_context = @workspace_syncer&.sync!(execution, workspace_dir)
+      attachments = prepare_attachments!(execution, workspace_dir)
 
       prior_history = quest.instructions
         .where("sequence < ?", instruction.sequence)
@@ -111,7 +113,8 @@ class QuestExecution::DockerRunner
         body: instruction.body,
         received_at: instruction.received_at.iso8601,
         history: prior_history,
-        git_context: git_context
+        git_context: git_context,
+        attachments: attachments.presence
       }.compact
       File.write(workspace_dir.join(INSTRUCTION_FILENAME), JSON.pretty_generate(payload))
       [ workspace_dir, git_context ]
@@ -205,6 +208,37 @@ class QuestExecution::DockerRunner
     rescue StandardError => e
       Rails.error.report(e, context: { execution_id: execution.id, container_id: execution.container_id })
       execution.mark_cleanup_failed!
+    end
+
+    def prepare_attachments!(execution, workspace_dir)
+      raw_attachments = execution.instruction.metadata&.dig("attachments")
+      return [] unless raw_attachments.is_a?(Array) && raw_attachments.any?
+
+      attachments_dir = workspace_dir.join(ATTACHMENTS_DIRNAME)
+      FileUtils.mkdir_p(attachments_dir)
+      slack_client = Omochi::Slack.build_web_client
+
+      raw_attachments.each_with_index.filter_map do |att, idx|
+        url = att["url"].to_s
+        next if url.blank?
+
+        raw_name = File.basename(att["name"].to_s).gsub(/[^A-Za-z0-9._-]/, "_")
+        raw_name = "attachment_#{idx + 1}.png" if raw_name.blank? || raw_name == "." || raw_name == ".."
+        filename = "#{execution.instruction.sequence}_#{idx + 1}_#{raw_name}"
+        host_path = attachments_dir.join(filename)
+
+        bytes = slack_client.download_file(url)
+        File.binwrite(host_path, bytes)
+
+        {
+          "name" => att["name"].to_s,
+          "mimetype" => att["mimetype"].to_s,
+          "path" => "/workspace/#{ATTACHMENTS_DIRNAME}/#{filename}"
+        }
+      rescue StandardError => e
+        Rails.error.report(e, context: { execution_id: execution.id, attachment_url: url })
+        nil
+      end
     end
 
     def run_merge_command!(execution)
