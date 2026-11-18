@@ -156,6 +156,49 @@ async def resolve_response_text(
     return "".join(text_parts).strip()
 
 
+def build_chat_payload(prompt_text: str, attachments: list[dict]):
+    if not attachments:
+        return prompt_text
+
+    from_file_fn = None
+    image_cls = None
+    for mod_path in ("google.antigravity.types", "google.antigravity"):
+        try:
+            mod = __import__(mod_path, fromlist=["from_file", "Image"])
+            from_file_fn = getattr(mod, "from_file", None)
+            image_cls = getattr(mod, "Image", None)
+            if from_file_fn or image_cls:
+                break
+        except Exception:
+            continue
+
+    if not from_file_fn and not image_cls:
+        return prompt_text
+
+    media_parts = []
+    for att in attachments:
+        att_path = att.get("path", "")
+        if not att_path or not os.path.exists(att_path):
+            continue
+        part = None
+        if from_file_fn:
+            try:
+                part = from_file_fn(att_path)
+            except Exception:
+                part = None
+        if part is None and image_cls and hasattr(image_cls, "from_file"):
+            try:
+                part = image_cls.from_file(att_path)
+            except Exception:
+                part = None
+        if part is not None:
+            media_parts.append(part)
+
+    if media_parts:
+        return [prompt_text, *media_parts]
+    return prompt_text
+
+
 def build_agent_config(model_name: str, system_instructions: str):
     from google.antigravity import CapabilitiesConfig, LocalAgentConfig
 
@@ -274,14 +317,13 @@ async def main():
         prompt_parts.append("\n\n".join(history_lines))
 
     if attachments:
-        att_lines = ["Attached image files saved inside `/workspace` (do NOT commit `.omochi_attachments/`):"]
+        att_lines = ["Attached image files (provided directly as multimodal input and also saved in `/workspace`; do NOT commit `.omochi_attachments/`):"]
         for att in attachments:
             att_path = att.get("path", "")
             att_name = att.get("name", "")
             att_mime = att.get("mimetype", "")
             if att_path:
                 att_lines.append(f"- `{att_path}` ({att_name}, {att_mime})")
-        att_lines.append("Inspect these attached image files directly if needed to understand the user's request.")
         prompt_parts.append("\n".join(att_lines))
 
     if prompt_parts:
@@ -334,7 +376,8 @@ async def main():
                             "progress",
                             message=f"Analyzing instruction #{sequence} with Antigravity ({current_model}, attempt {idx}/{max_attempts})...",
                         )
-                        response = await agent.chat(prompt)
+                        chat_payload = build_chat_payload(prompt, attachments)
+                        response = await agent.chat(chat_payload)
                         summary = await resolve_response_text(
                             response,
                             step_error_handler,
