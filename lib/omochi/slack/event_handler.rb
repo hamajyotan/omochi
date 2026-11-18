@@ -33,6 +33,9 @@ module Omochi
         thread_ts = (event["thread_ts"].presence || ts).to_s.strip
         return ignored if event_id.empty? || team_id.empty? || channel.empty? || thread_ts.empty?
 
+        allowed_team_id = Omochi::Settings.dig(:slack, :team_id).to_s.strip
+        return ignored if allowed_team_id.present? && team_id != allowed_team_id
+
         scope_key = "#{team_id}/#{channel}"
         resource = ExternalResource.identity(
           platform: "slack",

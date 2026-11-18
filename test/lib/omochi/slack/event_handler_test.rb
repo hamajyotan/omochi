@@ -180,4 +180,16 @@ class Omochi::Slack::EventHandlerTest < ActiveSupport::TestCase
     assert quest.completed?
     assert quest.executions.sole.succeeded?
   end
+
+  test "ignores events from other workspaces when SLACK_TEAM_ID is configured" do
+    orig_team_id = Rails.configuration.omochi[:slack][:team_id]
+    Rails.configuration.omochi[:slack][:team_id] = "T100"
+
+    assert_no_difference -> { Quest.count } do
+      other_team_env = build_envelope(event_id: "EvOtherTeam", team_id: "T_OTHER")
+      assert_equal :ignored, @handler.handle_envelope(other_team_env).status
+    end
+  ensure
+    Rails.configuration.omochi[:slack][:team_id] = orig_team_id
+  end
 end

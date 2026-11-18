@@ -2,10 +2,14 @@
 # (see .env.example). Never write secret values in this file.
 shared:
   slack:
-    # Used from Phase 3 (Slack Socket Mode). Host-side only: never passed to
-    # Agent Containers.
+    # Used from Phase 3 (Slack Socket Mode) and Dashboard Authentication (Sign in with Slack).
+    # Host-side only: never passed to Agent Containers.
     bot_token: <%= ENV["SLACK_BOT_TOKEN"] %>
     app_token: <%= ENV["SLACK_APP_TOKEN"] %>
+    client_id: <%= ENV["SLACK_CLIENT_ID"] %>
+    client_secret: <%= ENV["SLACK_CLIENT_SECRET"] %>
+    team_id: <%= ENV["SLACK_TEAM_ID"] %>
+    allowed_users: <%= ENV["ALLOWED_SLACK_USERS"] %>
   github:
     # Used from Phase 5 (GitHub App & Webhook). Host-side only: never passed to
     # Agent Containers.
@@ -15,9 +19,6 @@ shared:
     repositories: <%= ENV.fetch("GITHUB_REPOSITORIES", "hamajyotan/omochi") %>
     webhook_secret: <%= ENV["GITHUB_WEBHOOK_SECRET"] %>
     private_key: <%= ENV["GITHUB_PRIVATE_KEY"] %>
-    client_id: <%= ENV["GITHUB_CLIENT_ID"] %>
-    client_secret: <%= ENV["GITHUB_CLIENT_SECRET"] %>
-    allowed_users: <%= ENV["ALLOWED_GITHUB_USERS"] %>
   docker:
     image: <%= ENV.fetch("OMOCHI_AGENT_IMAGE", "ruby:4.0") %>
     agent_runtime: <%= ENV.fetch("OMOCHI_AGENT_RUNTIME", "mock") %>

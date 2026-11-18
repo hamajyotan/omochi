@@ -12,9 +12,14 @@ module Omochi
     end
 
     mattr_accessor :web_client_factory, default: -> { WebClient.new }
+    mattr_accessor :oauth_client_factory, default: -> { OAuthClient.new }
 
     def self.build_web_client
       web_client_factory.call
+    end
+
+    def self.build_oauth_client
+      oauth_client_factory.call
     end
   end
 end

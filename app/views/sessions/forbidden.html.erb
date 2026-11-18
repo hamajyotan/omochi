@@ -8,10 +8,14 @@
   </div>
 
   <p>
-    GitHub アカウント <strong class="mono">@<%= login %></strong> には、この omochi ダッシュボードへのアクセス権限が付与されていません。
+    Slack アカウント <strong class="mono"><%= display_name %></strong> には、この omochi ダッシュボードへのアクセス権限が付与されていません。
   </p>
   <p class="meta">
-    ダッシュボードにアクセスするには、管理者にホワイトリスト（<code>ALLOWED_GITHUB_USERS</code>）への追加を依頼してください。
+    <% if reason == :workspace_mismatch %>
+      許可された Slack ワークスペース（<code>SLACK_TEAM_ID</code>）のメンバーのみアクセスできます。
+    <% else %>
+      ダッシュボードにアクセスするには、管理者にホワイトリスト（<code>ALLOWED_SLACK_USERS</code>）への追加を依頼してください。
+    <% end %>
   </p>
 
   <div style="margin-top: 1.5rem;">

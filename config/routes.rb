@@ -22,7 +22,7 @@ Rails.application.routes.draw do
 
   # Authentication
   get "login" => "sessions#new", as: :login
-  get "auth/github/callback" => "sessions#callback", as: :auth_github_callback
+  get "auth/slack/callback" => "sessions#callback", as: :auth_slack_callback
   delete "logout" => "sessions#destroy", as: :logout
   get "logout" => "sessions#destroy"
 
