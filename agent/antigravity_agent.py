@@ -300,7 +300,7 @@ async def main():
         )
 
         primary_model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"
-        fallback_models = [primary_model, "gemini-3.1-flash-lite", "gemini-3.5-flash"]
+        fallback_models = list(dict.fromkeys([primary_model, "gemini-3.5-flash", "gemini-3.1-flash-lite"]))
 
         emit("progress", message=f"Antigravity Agent initialized with workspace capabilities (model: {fallback_models[0]}).")
 
@@ -308,6 +308,7 @@ async def main():
         logging.getLogger().addHandler(step_error_handler)
         loop = asyncio.get_running_loop()
 
+        terminal_emitted = False
         summary = ""
         max_attempts = len(fallback_models)
         heartbeat_task = asyncio.create_task(heartbeat_worker(15.0))
@@ -345,9 +346,10 @@ async def main():
                     )
                     if is_retryable and idx < max_attempts:
                         next_model = fallback_models[idx]
+                        err_preview = err_str.replace("\n", " ")[:200]
                         emit(
                             "progress",
-                            message=f"Model {current_model} unavailable or timed out. Falling back to {next_model} (attempt {idx + 1}/{max_attempts})...",
+                            message=f"Model {current_model} failed ({err_preview}). Falling back to {next_model} (attempt {idx + 1}/{max_attempts})...",
                         )
                         await asyncio.sleep(2)
                     else:
@@ -365,14 +367,20 @@ async def main():
             summary = f"Antigravity Agent completed instruction #{sequence}."
 
         emit("result", summary=summary, message=summary)
+        terminal_emitted = True
         emit("completed", message=summary, summary=summary)
         sys.exit(0)
 
     except ImportError:
         emit("failed", message="google-antigravity package is not installed in the container environment.")
         sys.exit(3)
-    except Exception as e:
-        emit("failed", message=f"Antigravity execution error: {e}")
+    except SystemExit as e:
+        if not locals().get("terminal_emitted", False) and (e.code is None or e.code == 0):
+            emit("failed", message="Antigravity exited unexpectedly with status 0 before completion.")
+            sys.exit(4)
+        raise
+    except BaseException as e:
+        emit("failed", message=f"Antigravity execution error ({type(e).__name__}): {e}")
         sys.exit(4)
 
 
