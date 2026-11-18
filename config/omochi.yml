@@ -6,10 +6,10 @@ shared:
     # Host-side only: never passed to Agent Containers.
     bot_token: <%= ENV["SLACK_BOT_TOKEN"] %>
     app_token: <%= ENV["SLACK_APP_TOKEN"] %>
-    client_id: <%= ENV["SLACK_CLIENT_ID"] %>
-    client_secret: <%= ENV["SLACK_CLIENT_SECRET"] %>
-    team_id: <%= ENV["SLACK_TEAM_ID"] %>
-    allowed_users: <%= ENV["ALLOWED_SLACK_USERS"] %>
+    client_id: <%= ENV["SLACK_CLIENT_ID"].to_s.inspect %>
+    client_secret: <%= ENV["SLACK_CLIENT_SECRET"].to_s.inspect %>
+    team_id: <%= ENV["SLACK_TEAM_ID"].to_s.inspect %>
+    allowed_users: <%= ENV["ALLOWED_SLACK_USERS"].to_s.inspect %>
   github:
     # Used from Phase 5 (GitHub App & Webhook). Host-side only: never passed to
     # Agent Containers.
