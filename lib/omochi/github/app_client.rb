@@ -129,6 +129,16 @@ module Omochi
         )
       end
 
+      # Merges a Pull Request using the specified merge method (`merge`, `squash`, or `rebase`).
+      def merge_pull_request(installation_id:, repository:, pull_number:, merge_method: "merge")
+        token = installation_token(installation_id)
+        put_json(
+          "repos/#{repository}/pulls/#{pull_number}/merge",
+          bearer_token: token,
+          payload: { merge_method: merge_method.to_s }
+        )
+      end
+
       # Fetches Pull Request metadata (title, body, base/head refs and SHAs).
       def fetch_pull_request(installation_id:, repository:, pull_number:)
         token = installation_token(installation_id)
@@ -160,6 +170,18 @@ module Omochi
             uri,
             token: bearer_token,
             method: :post,
+            body: payload.empty? ? nil : JSON.generate(payload)
+          )
+
+          handle_http_response(response, endpoint)
+        end
+
+        def put_json(endpoint, bearer_token:, payload:)
+          uri = URI.parse("#{@base_url}/#{endpoint}")
+          response = invoke_http(
+            uri,
+            token: bearer_token,
+            method: :put,
             body: payload.empty? ? nil : JSON.generate(payload)
           )
 
@@ -228,7 +250,12 @@ module Omochi
             open_timeout: OPEN_TIMEOUT_SECONDS,
             read_timeout: READ_TIMEOUT_SECONDS
           ) do |http|
-            request = (method == :get) ? Net::HTTP::Get.new(uri.request_uri) : Net::HTTP::Post.new(uri.request_uri)
+            request =
+              case method
+              when :get then Net::HTTP::Get.new(uri.request_uri)
+              when :put then Net::HTTP::Put.new(uri.request_uri)
+              else Net::HTTP::Post.new(uri.request_uri)
+              end
             request["Authorization"] = "Bearer #{token}"
             request["Accept"] = accept
             request["X-GitHub-Api-Version"] = "2022-11-28"

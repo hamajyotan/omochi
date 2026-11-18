@@ -2,13 +2,14 @@
 module Omochi
   module GitHub
     class FakeAppClient
-      attr_reader :reviews, :comments, :created_pull_requests, :tokens_requested
-      attr_accessor :on_create_review, :on_create_comment, :on_create_pull_request, :repositories, :pull_requests, :pull_request_diffs
+      attr_reader :reviews, :comments, :created_pull_requests, :merged_pull_requests, :tokens_requested
+      attr_accessor :on_create_review, :on_create_comment, :on_create_pull_request, :on_merge_pull_request, :repositories, :pull_requests, :pull_request_diffs
 
       def initialize
         @reviews = []
         @comments = []
         @created_pull_requests = []
+        @merged_pull_requests = []
         @tokens_requested = []
         @repositories = {}
         @pull_requests = {}
@@ -98,6 +99,25 @@ module Omochi
         record = { installation_id:, repository:, issue_number:, body: body.to_s }
         @comments << record
         { "id" => 201, "body" => body.to_s }
+      end
+
+      def merge_pull_request(installation_id:, repository:, pull_number:, merge_method: "merge")
+        if @on_merge_pull_request
+          return @on_merge_pull_request.call(installation_id:, repository:, pull_number:, merge_method:)
+        end
+
+        record = {
+          installation_id: installation_id,
+          repository: repository.to_s,
+          pull_number: pull_number.to_i,
+          merge_method: merge_method.to_s
+        }
+        @merged_pull_requests << record
+        {
+          "sha" => "merged_sha_#{pull_number}",
+          "merged" => true,
+          "message" => "Pull Request successfully merged"
+        }
       end
     end
   end

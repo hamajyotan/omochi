@@ -23,13 +23,18 @@ class QuestExecution::DockerRunner
 
   def initialize(
     docker_client: self.class.docker_client_factory.call,
-    workspace_syncer: Omochi::GitHub.build_workspace_syncer
+    workspace_syncer: Omochi::GitHub.build_workspace_syncer,
+    pull_request_merger: Omochi::GitHub::PullRequestMerger.new
   )
     @docker_client = docker_client
     @workspace_syncer = workspace_syncer
+    @pull_request_merger = pull_request_merger
   end
 
   def run(execution)
+    if Omochi::GitHub::PullRequestMerger.merge_command?(execution.instruction.body)
+      return run_merge_command!(execution)
+    end
     workspace_path, git_context = prepare_workspace!(execution)
     execution.mark_preparing!(workspace_path: workspace_path.to_s)
 
@@ -200,6 +205,21 @@ class QuestExecution::DockerRunner
     rescue StandardError => e
       Rails.error.report(e, context: { execution_id: execution.id, container_id: execution.container_id })
       execution.mark_cleanup_failed!
+    end
+
+    def run_merge_command!(execution)
+      execution.mark_running!
+      execution.record_event!(
+        event_type: "progress",
+        message: "Merging Pull Request via GitHub App API..."
+      )
+
+      result = @pull_request_merger.merge!(execution)
+      summary = "🔀 Merged Pull Request ##{result['pull_number']} (#{result['merge_method']}): #{result['url']}"
+      execution.record_event!(event_type: "completed", message: summary, payload: result)
+      execution.succeed!(result_summary: summary, exit_code: 0)
+    rescue Omochi::GitHub::PullRequestMerger::MergeError, Omochi::GitHub::Error => e
+      execution.fail!(error_kind: "agent_error", error_message: "Pull Request のマージに失敗しました: #{e.message}")
     end
 
     def docker_setting(key)
