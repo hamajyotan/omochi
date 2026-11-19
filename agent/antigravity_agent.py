@@ -289,7 +289,9 @@ def extract_memory_updates(text: str) -> tuple[str, list[dict]]:
 def build_memory_instructions() -> str:
     return (
         "User Memory Persistence:\n"
-        "- If you learn notable, durable context about the user (such as their name/nickname, personal preferences, "
+        "- Memories are scoped strictly to the CURRENT speaker (`speaker`). Never attribute another thread participant's "
+        "identity, name, or preferences to the current speaker.\n"
+        "- If you learn notable, durable context about the current speaker (such as their name/nickname, personal preferences, "
         "ongoing goals/tasks they want to do (`follow_up`), or when a previously remembered follow-up item is resolved), "
         "append a `<omochi_memory>` JSON array at the very end of your response (never inside markdown code fences).\n"
         '- Format: `<omochi_memory>[{"action":"upsert","key":"short_snake_key","category":"profile|preference|follow_up|context","content":"concise Japanese note"}]</omochi_memory>`\n'
@@ -444,6 +446,7 @@ async def main():
 
     quest_id = instruction.get("quest_public_id", "unknown")
     sequence = instruction.get("instruction_sequence", 1)
+    speaker = (instruction.get("speaker") or "").strip()
     body = instruction.get("body", "")
     history = instruction.get("history") or []
     git_context = instruction.get("git_context") or {}
@@ -489,9 +492,10 @@ async def main():
         history_lines = ["Previous conversation history in this Quest:"]
         for entry in history:
             seq = entry.get("sequence")
+            entry_speaker = (entry.get("speaker") or "User").strip()
             user_msg = (entry.get("body") or "").strip()
             agent_msg = (entry.get("result_summary") or "").strip()
-            history_lines.append(f"[Instruction #{seq} (User)]:\n{user_msg}")
+            history_lines.append(f"[Instruction #{seq} ({entry_speaker})]:\n{user_msg}")
             if agent_msg:
                 history_lines.append(f"[Response #{seq} (omochi)]:\n{agent_msg}")
         prompt_parts.append("\n\n".join(history_lines))
@@ -499,9 +503,11 @@ async def main():
     user_memories = instruction.get("user_memories") or {}
     memory_items = user_memories.get("items") if isinstance(user_memories, dict) else None
     if memory_items:
+        speaker_label = speaker or user_memories.get("scope") or "current user"
         mem_lines = [
-            "Remembered context about the current user (use naturally when helpful; "
-            "occasionally follow up on open `follow_up` topics without forcing them into every reply):"
+            f"Remembered context about the current speaker ({speaker_label}) "
+            "(use naturally when helpful; occasionally follow up on open `follow_up` topics without forcing them into every reply; "
+            "do NOT confuse this person with other speakers in the thread):"
         ]
         for item in memory_items:
             cat = item.get("category", "context")
@@ -510,6 +516,13 @@ async def main():
             if content:
                 mem_lines.append(f"- [{cat}] ({key}) {content}")
         prompt_parts.append("\n".join(mem_lines))
+    elif speaker:
+        prompt_parts.append(
+            f"Speaker Context:\n"
+            f"- The current speaker is `{speaker}`, who has no saved memories yet.\n"
+            f"- If other speakers appeared earlier in the thread history, treat `{speaker}` as a distinct person "
+            "and do NOT assume earlier speakers' names, roles, or preferences apply to them."
+        )
 
     if attachments:
         att_lines = ["Attached image files (provided directly as multimodal input and also saved in `/workspace`; do NOT commit `.omochi_attachments/`):"]
@@ -522,7 +535,8 @@ async def main():
         prompt_parts.append("\n".join(att_lines))
 
     if prompt_parts:
-        prompt_parts.append(f"Current instruction (#{sequence}):\n{body}")
+        speaker_suffix = f", from {speaker}" if speaker else ""
+        prompt_parts.append(f"Current instruction (#{sequence}{speaker_suffix}):\n{body}")
         prompt = "\n\n".join(prompt_parts)
     else:
         prompt = body

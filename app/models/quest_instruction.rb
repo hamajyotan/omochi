@@ -51,6 +51,10 @@ class QuestInstruction < ApplicationRecord
     end
   end
 
+  def actor_identifier
+    memory_scope&.last
+  end
+
   # Re-queues a failed or cancelled instruction so a new QuestExecution will
   # process it while keeping all past QuestExecutions intact.
   def retry!

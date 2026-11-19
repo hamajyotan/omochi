@@ -182,4 +182,48 @@ class QuestExecutionDockerRunnerTest < ActiveSupport::TestCase
     assert_equal "follow_up", learned.category
     assert_equal "Ruby 3.4 の検証予定", learned.content
   end
+
+  test "distinguishes speakers in thread history and scopes memories to current speaker" do
+    AgentMemory.apply_event!(
+      scope_type: "user",
+      scope_key: "slack:U_ALICE",
+      payload: { "key" => "name", "category" => "profile", "content" => "名前は Alice" }
+    )
+
+    first_instruction = Quest.start!(
+      title: "Multi-speaker Slack quest",
+      body: "こんにちは、Alice です",
+      source_platform: "slack",
+      source_event_id: "Ev_alice_1",
+      metadata: { "slack_user_id" => "U_ALICE", "slack_message_ts" => "1700000001.0001" },
+      enqueue: false
+    )
+    first_exec = first_instruction.quest.claim_next_instruction!
+    QuestExecution::DockerRunner.new(docker_client: @fake_docker_client).run(first_exec)
+
+    second_instruction = first_instruction.quest.receive_instruction!(
+      body: "途中から参加した Bob です",
+      source_platform: "slack",
+      source_event_id: "Ev_bob_2",
+      metadata: { "slack_user_id" => "U_BOB", "slack_message_ts" => "1700000002.0001" },
+      enqueue: false
+    )
+    second_exec = first_instruction.quest.claim_next_instruction!
+
+    bob_payload = nil
+    @fake_docker_client.on_run = ->(_cid, **_opts, &block) do
+      ws = @fake_docker_client.created_containers.last[:workspace_path]
+      bob_payload = JSON.parse(File.read(File.join(ws, ".omochi_instruction.json")))
+      block.call(%({"type":"started","message":"hi"}\n), "stdout")
+      block.call(%({"type":"completed","summary":"Bob さんもよろしくにゃ！"}\n), "stdout")
+      0
+    end
+
+    QuestExecution::DockerRunner.new(docker_client: @fake_docker_client).run(second_exec)
+
+    assert_equal "slack:U_BOB", bob_payload["speaker"]
+    assert_nil bob_payload["user_memories"]
+    assert_equal 1, bob_payload["history"].size
+    assert_equal "slack:U_ALICE", bob_payload.dig("history", 0, "speaker")
+  end
 end

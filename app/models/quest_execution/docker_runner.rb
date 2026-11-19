@@ -101,9 +101,10 @@ class QuestExecution::DockerRunner
           {
             sequence: inst.sequence,
             source_platform: inst.source_platform,
+            speaker: inst.actor_identifier,
             body: inst.body,
             result_summary: succeeded_exec&.result_summary
-          }
+          }.compact
         end
 
       user_memories =
@@ -116,6 +117,7 @@ class QuestExecution::DockerRunner
         execution_id: execution.id,
         instruction_sequence: instruction.sequence,
         source_platform: instruction.source_platform,
+        speaker: instruction.actor_identifier,
         body: instruction.body,
         received_at: instruction.received_at.iso8601,
         history: prior_history,
