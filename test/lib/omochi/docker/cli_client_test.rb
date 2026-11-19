@@ -50,6 +50,7 @@ class Omochi::Docker::CliClientTest < ActiveSupport::TestCase
       image: "omochi-agent:antigravity",
       workspace_path: "/tmp/ws",
       agent_script_path: "/tmp/antigravity_agent.py",
+      agent_instructions_path: "/tmp/agent_AGENTS.md",
       command: [ "python3", "/opt/omochi/agent_runner" ],
       network: "bridge",
       memory: "1g",
@@ -63,6 +64,7 @@ class Omochi::Docker::CliClientTest < ActiveSupport::TestCase
     assert_includes captured_args, "omochi-agent:antigravity"
     assert_includes captured_args, "python3"
     assert_includes captured_args, "/opt/omochi/agent_runner"
+    assert_includes captured_args, "/tmp/agent_AGENTS.md:/opt/omochi/AGENTS.md:ro"
   end
 
   test "executes mock_agent.rb end-to-end inside a real Docker container" do

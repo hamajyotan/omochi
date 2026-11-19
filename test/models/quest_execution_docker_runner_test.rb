@@ -76,6 +76,7 @@ class QuestExecutionDockerRunnerTest < ActiveSupport::TestCase
       assert_equal "secret_gemini_key", spec[:env]["GEMINI_API_KEY"]
       assert_equal "gemini-3.5-flash", spec[:env]["GEMINI_MODEL"]
       assert_includes spec[:agent_script_path], "antigravity_agent.py"
+      assert_includes spec[:agent_instructions_path], "agent/AGENTS.md"
     ensure
       Rails.configuration.omochi[:docker][:agent_runtime] = orig_runtime
       Rails.configuration.omochi[:docker][:gemini_api_key] = orig_key

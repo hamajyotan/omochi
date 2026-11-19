@@ -124,11 +124,16 @@ class QuestExecution::DockerRunner
       container_name = "omochi-#{execution.quest.public_id}-exec-#{execution.id}"
       runtime = docker_setting_optional(:agent_runtime) || "mock"
 
-      agent_script_path, command =
+      agent_script_path, agent_instructions_path, command =
         if runtime == "antigravity"
-          [ Rails.root.join("agent/antigravity_agent.py").to_s, [ "python3", Omochi::Docker::CliClient::CONTAINER_AGENT_PATH ] ]
+          instructions_path = Rails.root.join("agent/AGENTS.md").to_s
+          [
+            Rails.root.join("agent/antigravity_agent.py").to_s,
+            (File.exist?(instructions_path) ? instructions_path : nil),
+            [ "python3", Omochi::Docker::CliClient::CONTAINER_AGENT_PATH ]
+          ]
         else
-          [ Rails.root.join("agent/mock_agent.rb").to_s, [ "ruby", Omochi::Docker::CliClient::CONTAINER_AGENT_PATH ] ]
+          [ Rails.root.join("agent/mock_agent.rb").to_s, nil, [ "ruby", Omochi::Docker::CliClient::CONTAINER_AGENT_PATH ] ]
         end
 
       env = {
@@ -149,6 +154,7 @@ class QuestExecution::DockerRunner
         image: docker_setting(:image),
         workspace_path: workspace_path.to_s,
         agent_script_path: agent_script_path,
+        agent_instructions_path: agent_instructions_path,
         command: command,
         network: docker_setting_optional(:network) || "none",
         memory: docker_setting(:memory),

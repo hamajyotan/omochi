@@ -9,6 +9,7 @@ module Omochi
   module Docker
     class CliClient
       CONTAINER_AGENT_PATH = "/opt/omochi/agent_runner".freeze
+      CONTAINER_AGENT_INSTRUCTIONS_PATH = "/opt/omochi/AGENTS.md".freeze
       CONTAINER_WORKSPACE_PATH = "/workspace".freeze
 
       def initialize(docker_bin: "docker", capture3: Open3.method(:capture3))
@@ -17,9 +18,9 @@ module Omochi
       end
 
       # Creates an isolated Agent Container and returns its container ID.
-      def create_container(name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, command: nil, network: "none", env: {})
+      def create_container(name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, agent_instructions_path: nil, command: nil, network: "none", env: {})
         args = build_create_args(
-          name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, command:, network:, env:
+          name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, agent_instructions_path:, command:, network:, env:
         )
 
         stdout, stderr, status = @capture3.call(*args, unsetenv_others: false)
@@ -33,7 +34,7 @@ module Omochi
         raise Error, "docker CLI not found: #{e.message}"
       end
 
-      def build_create_args(name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, command: nil, network: "none", env: {})
+      def build_create_args(name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, agent_instructions_path: nil, command: nil, network: "none", env: {})
         cmd = command.presence || [ "ruby", CONTAINER_AGENT_PATH ]
         args = [
           @docker_bin, "create",
@@ -52,6 +53,9 @@ module Omochi
           "--volume", "#{agent_script_path}:#{CONTAINER_AGENT_PATH}:ro",
           "--workdir", CONTAINER_WORKSPACE_PATH
         ]
+        if agent_instructions_path.present?
+          args.push("--volume", "#{agent_instructions_path}:#{CONTAINER_AGENT_INSTRUCTIONS_PATH}:ro")
+        end
 
         merged_env = { "HOME" => "/home/agent" }.merge(env)
         merged_env.each do |key, value|

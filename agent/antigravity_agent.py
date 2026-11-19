@@ -199,24 +199,29 @@ def build_chat_payload(prompt_text: str, attachments: list[dict]):
     return prompt_text
 
 
-def load_workspace_agents_md(workspace_dir: str, max_chars: int = 24000) -> str | None:
-    """Reads /workspace/AGENTS.md if present so the agent follows repository-specific rules."""
-    agents_path = os.path.join(workspace_dir, "AGENTS.md")
-    if not os.path.isfile(agents_path):
+AGENT_INSTRUCTIONS_FILE = os.environ.get("OMOCHI_AGENT_INSTRUCTIONS", "/opt/omochi/AGENTS.md")
+
+
+def load_markdown_file(path: str, max_chars: int = 24000) -> str | None:
+    """Reads a markdown instruction file if present."""
+    if not path or not os.path.isfile(path):
         return None
     try:
-        with open(agents_path, "r", encoding="utf-8", errors="replace") as f:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read().strip()
     except Exception:
         return None
     if not content:
         return None
     if len(content) > max_chars:
-        return content[:max_chars] + "\n\n... (truncated; see /workspace/AGENTS.md for full text)"
+        return content[:max_chars] + f"\n\n... (truncated; see {path} for full text)"
     return content
 
 
-def build_system_instructions(workspace_dir: str) -> tuple[str, bool]:
+def build_system_instructions(
+    workspace_dir: str,
+    agent_instructions_file: str = AGENT_INSTRUCTIONS_FILE,
+) -> tuple[str, list[str]]:
     base_instructions = (
         "You are omochi, an autonomous AI coding assistant running inside an isolated workspace (/workspace). "
         "You have access to tools for navigating, editing, and testing the codebase. "
@@ -227,18 +232,31 @@ def build_system_instructions(workspace_dir: str) -> tuple[str, bool]:
         "When only answering a question, investigating, or reviewing a Pull Request (/review), do NOT create any Git commits. "
         "Be concise, precise, and provide a clear summary of your findings or changes."
     )
-    agents_md = load_workspace_agents_md(workspace_dir)
-    if not agents_md:
-        return base_instructions, False
 
-    combined = (
-        f"{base_instructions}\n\n"
-        "Repository Instructions (loaded from /workspace/AGENTS.md):\n"
-        "Follow the repository-specific instructions below unless they conflict with the core execution rules above "
-        "(such as never running `git push` or bypassing container boundaries):\n\n"
-        f"{agents_md}"
-    )
-    return combined, True
+    sections = [base_instructions]
+    loaded_sources: list[str] = []
+
+    agent_md = load_markdown_file(agent_instructions_file)
+    if agent_md:
+        loaded_sources.append(agent_instructions_file)
+        sections.append(
+            f"Agent Persona & Behavior Guidelines (loaded from {agent_instructions_file}):\n"
+            "Follow the omochi agent persona, tone, and operational guidelines below:\n\n"
+            f"{agent_md}"
+        )
+
+    repo_agents_path = os.path.join(workspace_dir, "AGENTS.md")
+    repo_md = load_markdown_file(repo_agents_path)
+    if repo_md:
+        loaded_sources.append(repo_agents_path)
+        sections.append(
+            f"Repository Instructions (loaded from {repo_agents_path}):\n"
+            "Follow the repository-specific conventions and architectural rules below unless they conflict "
+            "with the core execution rules above (such as never running `git push` or bypassing container boundaries):\n\n"
+            f"{repo_md}"
+        )
+
+    return "\n\n".join(sections), loaded_sources
 
 
 def build_agent_config(model_name: str, system_instructions: str):
@@ -384,9 +402,9 @@ async def main():
     try:
         from google.antigravity import Agent
 
-        system_instructions, agents_md_loaded = build_system_instructions(WORKSPACE_DIR)
-        if agents_md_loaded:
-            emit("progress", message="Loaded repository instructions from /workspace/AGENTS.md.")
+        system_instructions, loaded_sources = build_system_instructions(WORKSPACE_DIR)
+        if loaded_sources:
+            emit("progress", message=f"Loaded instructions from {', '.join(loaded_sources)}.")
 
         primary_model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"
         fallback_models = list(dict.fromkeys([primary_model, "gemini-3.5-flash", "gemini-3.1-flash-lite"]))
