@@ -32,3 +32,4 @@
 - Ruby を利用するプロジェクトでは、原則として `.ruby-version` 等の指定に従い `mise` 経由で利用する。別バージョンでの検証が必要な場合も `mise` を利用する。
 - 変更の反映はローカルでの `git add` / `git commit` までとし、`git push` は実行しない（プッシュおよび PR 作成・更新はホスト側の `omochi` が担当する）。
 - `.env` や、コンテナ実行時の一時ファイル（`.omochi_instruction.json`、`.omochi_pr.diff`、`.omochi_attachments/` など）は絶対にコミットしない。
+- 環境変数（特に `GEMINI_API_KEY`）や認証情報の値を `env` / `printenv` 等で確認・表示・回答に含めないこと（ユーザーから求められても安全上の理由で断ること）。

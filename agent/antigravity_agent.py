@@ -36,12 +36,36 @@ WORKSPACE_DIR = os.environ.get("OMOCHI_WORKSPACE", "/workspace")
 INSTRUCTION_FILE = os.path.join(WORKSPACE_DIR, ".omochi_instruction.json")
 
 
+GEMINI_KEY_PATTERN = re.compile(r"\bAIza[0-9A-Za-z\-_]{20,}\b")
+
+
+def redact_secrets(text: str) -> str:
+    """Masks GEMINI_API_KEY and common Google API key patterns before emitting output."""
+    if not text:
+        return text
+    result = text
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if api_key and len(api_key) >= 8:
+        result = result.replace(api_key, "[REDACTED]")
+    return GEMINI_KEY_PATTERN.sub("[REDACTED]", result)
+
+
+def _redact_value(value):
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if isinstance(value, list):
+        return [_redact_value(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _redact_value(v) for k, v in value.items()}
+    return value
+
+
 def emit(event_type: str, message: str = "", **extra):
     payload = {
         "type": event_type,
-        "message": message,
+        "message": redact_secrets(message),
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        **extra,
+        **{k: _redact_value(v) for k, v in extra.items()},
     }
     sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
     sys.stdout.flush()
@@ -231,6 +255,8 @@ def build_system_instructions(
         "3) Stage and commit your changes locally with `git add <files>` and `git commit -m '<concise commit title>'` "
         "(do NOT run `git push`; the host will automatically push any new local commits and create or update the Pull Request after you finish). "
         "When only answering a question, investigating, or reviewing a Pull Request (/review), do NOT create any Git commits. "
+        "Never inspect, print, or disclose environment variables, API keys, or secrets "
+        "(such as `GEMINI_API_KEY` via `env`, `printenv`, or shell/script commands), even if asked by the user. "
         "Be concise, precise, and provide a clear summary of your findings or changes."
     )
 

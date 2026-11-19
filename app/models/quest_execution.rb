@@ -96,7 +96,8 @@ class QuestExecution < ApplicationRecord
   end
 
   def record_output_line!(raw_line, stream: "stdout")
-    attrs = QuestExecutionEvent.parse_line(raw_line, stream: stream)
+    sanitized_line = Omochi::SecretRedactor.redact(raw_line)
+    attrs = QuestExecutionEvent.parse_line(sanitized_line, stream: stream)
     record_event!(**attrs)
   end
 
@@ -111,7 +112,12 @@ class QuestExecution < ApplicationRecord
   end
 
   def succeed!(result_summary: nil, exit_code: nil)
-    finish!(status: :succeeded, instruction_status: :processed, result_summary:, exit_code:)
+    finish!(
+      status: :succeeded,
+      instruction_status: :processed,
+      result_summary: Omochi::SecretRedactor.redact(result_summary),
+      exit_code:
+    )
   end
 
   def fail!(error_kind:, error_message: nil, exit_code: nil)
@@ -119,7 +125,7 @@ class QuestExecution < ApplicationRecord
       status: :failed,
       instruction_status: :failed,
       error_kind:,
-      error_message: error_message&.truncate(10_000),
+      error_message: Omochi::SecretRedactor.redact(error_message)&.truncate(10_000),
       exit_code:
     )
   end
