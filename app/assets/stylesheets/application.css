@@ -10,7 +10,14 @@
   background: var(--bg);
 }
 
-body { margin: 0; }
+body { 
+  margin: 0; 
+  background-image: url('/omochi_mascot.png');
+  background-repeat: no-repeat;
+  background-position: right 20px bottom 20px;
+  background-size: 150px;
+  background-attachment: fixed;
+}
 a { color: var(--accent); }
 
 .site-header {
