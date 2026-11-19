@@ -57,11 +57,13 @@ class QuestExecutionDockerRunnerTest < ActiveSupport::TestCase
     orig_runtime = Rails.configuration.omochi[:docker][:agent_runtime]
     orig_key = Rails.configuration.omochi[:docker][:gemini_api_key]
     orig_model = Rails.configuration.omochi[:docker][:gemini_model]
+    orig_smart_model = Rails.configuration.omochi[:docker][:gemini_smart_model]
     orig_net = Rails.configuration.omochi[:docker][:network]
 
     Rails.configuration.omochi[:docker][:agent_runtime] = "antigravity"
     Rails.configuration.omochi[:docker][:gemini_api_key] = "secret_gemini_key"
-    Rails.configuration.omochi[:docker][:gemini_model] = "gemini-3.5-flash"
+    Rails.configuration.omochi[:docker][:gemini_model] = "gemini-3.1-flash-lite"
+    Rails.configuration.omochi[:docker][:gemini_smart_model] = "gemini-3.5-flash"
     Rails.configuration.omochi[:docker][:network] = "bridge"
 
     begin
@@ -74,13 +76,15 @@ class QuestExecutionDockerRunnerTest < ActiveSupport::TestCase
       assert_equal [ "python3", Omochi::Docker::CliClient::CONTAINER_AGENT_PATH ], spec[:command]
       assert_equal "bridge", spec[:network]
       assert_equal "secret_gemini_key", spec[:env]["GEMINI_API_KEY"]
-      assert_equal "gemini-3.5-flash", spec[:env]["GEMINI_MODEL"]
+      assert_equal "gemini-3.1-flash-lite", spec[:env]["GEMINI_MODEL"]
+      assert_equal "gemini-3.5-flash", spec[:env]["GEMINI_SMART_MODEL"]
       assert_includes spec[:agent_script_path], "antigravity_agent.py"
       assert_includes spec[:agent_instructions_path], "agent/AGENTS.md"
     ensure
       Rails.configuration.omochi[:docker][:agent_runtime] = orig_runtime
       Rails.configuration.omochi[:docker][:gemini_api_key] = orig_key
       Rails.configuration.omochi[:docker][:gemini_model] = orig_model
+      Rails.configuration.omochi[:docker][:gemini_smart_model] = orig_smart_model
       Rails.configuration.omochi[:docker][:network] = orig_net
     end
   end

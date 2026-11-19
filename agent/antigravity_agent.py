@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -259,6 +260,87 @@ def build_system_instructions(
     return "\n\n".join(sections), loaded_sources
 
 
+ESCALATION_PATTERN = re.compile(r"\[\[ESCALATE_MODEL(?:\s*:\s*(.+?))?\]\]", re.DOTALL)
+
+
+def parse_escalation_signal(text: str) -> tuple[bool, str]:
+    """Detects an escalation signal emitted by the fast model."""
+    match = ESCALATION_PATTERN.search(text or "")
+    if not match:
+        return False, ""
+    reason = (match.group(1) or "").strip()
+    return True, reason
+
+
+def build_routing_instructions(base_system_instructions: str, smart_model: str) -> str:
+    routing_block = (
+        f"Model Routing (Fast Mode -> {smart_model}):\n"
+        "You are currently running in fast response mode.\n"
+        "- For simple questions, casual conversation, brief clarifications, or lightweight read-only checks you can answer immediately, respond directly to the user.\n"
+        "- However, if the request or conversation requires modifying/creating files, implementing features, fixing bugs, running tests/commands, "
+        "deep multi-file code investigation, or complex reasoning/design:\n"
+        "  Do NOT edit files or run implementation commands yourself. Instead, immediately output ONLY the following single-line signal and stop:\n"
+        "  [[ESCALATE_MODEL: <concise reason and handoff notes>]]"
+    )
+    return f"{base_system_instructions}\n\n{routing_block}"
+
+
+async def run_chat_with_fallback(
+    agent_cls,
+    models: list[str],
+    system_instructions: str,
+    prompt: str,
+    attachments: list[dict],
+    sequence: int,
+    step_error_handler: StepErrorHandler,
+    loop: asyncio.AbstractEventLoop,
+) -> tuple[str, str]:
+    max_attempts = len(models)
+    for idx, current_model in enumerate(models, start=1):
+        step_error_handler.reset(loop)
+        config = build_agent_config(current_model, system_instructions)
+        try:
+            async with agent_cls(config) as agent:
+                emit(
+                    "progress",
+                    message=f"Analyzing instruction #{sequence} with Antigravity ({current_model}, attempt {idx}/{max_attempts})...",
+                )
+                chat_payload = build_chat_payload(prompt, attachments)
+                response = await agent.chat(chat_payload)
+                summary = await resolve_response_text(
+                    response,
+                    step_error_handler,
+                    idle_timeout=90.0,
+                    total_timeout=240.0,
+                )
+                return summary, current_model
+        except Exception as e:
+            err_str = str(e)
+            is_retryable = any(
+                code in err_str
+                for code in [
+                    "503",
+                    "429",
+                    "UNAVAILABLE",
+                    "high demand",
+                    "retryable",
+                    "terminated due to error",
+                    "Timed out waiting",
+                ]
+            )
+            if is_retryable and idx < max_attempts:
+                next_model = models[idx]
+                err_preview = err_str.replace("\n", " ")[:200]
+                emit(
+                    "progress",
+                    message=f"Model {current_model} failed ({err_preview}). Falling back to {next_model} (attempt {idx + 1}/{max_attempts})...",
+                )
+                await asyncio.sleep(2)
+            else:
+                raise
+    raise RuntimeError("No models available to execute.")
+
+
 def build_agent_config(model_name: str, system_instructions: str):
     from google.antigravity import CapabilitiesConfig, LocalAgentConfig
 
@@ -407,9 +489,9 @@ async def main():
             emit("progress", message=f"Loaded instructions from {', '.join(loaded_sources)}.")
 
         primary_model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"
-        fallback_models = list(dict.fromkeys([primary_model, "gemini-3.5-flash", "gemini-3.1-flash-lite"]))
-
-        emit("progress", message=f"Antigravity Agent initialized with workspace capabilities (model: {fallback_models[0]}).")
+        smart_model = os.environ.get("GEMINI_SMART_MODEL", "").strip()
+        is_pr_context = bool(git_context and git_context.get("mode") == "pull_request")
+        routing_enabled = bool(smart_model and smart_model != primary_model)
 
         step_error_handler = StepErrorHandler()
         logging.getLogger().addHandler(step_error_handler)
@@ -417,51 +499,39 @@ async def main():
 
         terminal_emitted = False
         summary = ""
-        max_attempts = len(fallback_models)
         heartbeat_task = asyncio.create_task(heartbeat_worker(15.0))
         try:
-            for idx, current_model in enumerate(fallback_models, start=1):
-                step_error_handler.reset(loop)
-                config = build_agent_config(current_model, system_instructions)
-                try:
-                    async with Agent(config) as agent:
-                        emit(
-                            "progress",
-                            message=f"Analyzing instruction #{sequence} with Antigravity ({current_model}, attempt {idx}/{max_attempts})...",
-                        )
-                        chat_payload = build_chat_payload(prompt, attachments)
-                        response = await agent.chat(chat_payload)
-                        summary = await resolve_response_text(
-                            response,
-                            step_error_handler,
-                            idle_timeout=90.0,
-                            total_timeout=240.0,
-                        )
-                        break
-                except Exception as e:
-                    err_str = str(e)
-                    is_retryable = any(
-                        code in err_str
-                        for code in [
-                            "503",
-                            "429",
-                            "UNAVAILABLE",
-                            "high demand",
-                            "retryable",
-                            "terminated due to error",
-                            "Timed out waiting",
-                        ]
+            if routing_enabled and is_pr_context:
+                emit("progress", message=f"Pull Request context detected; starting directly with {smart_model}.")
+                smart_models = list(dict.fromkeys([smart_model, "gemini-3.5-flash", primary_model]))
+                summary, _ = await run_chat_with_fallback(
+                    Agent, smart_models, system_instructions, prompt, attachments, sequence, step_error_handler, loop
+                )
+            elif routing_enabled:
+                emit(
+                    "progress",
+                    message=f"Starting in fast mode ({primary_model}); smart model ({smart_model}) available for escalation.",
+                )
+                fast_models = list(dict.fromkeys([primary_model, smart_model, "gemini-3.5-flash"]))
+                fast_instructions = build_routing_instructions(system_instructions, smart_model)
+                summary, used_model = await run_chat_with_fallback(
+                    Agent, fast_models, fast_instructions, prompt, attachments, sequence, step_error_handler, loop
+                )
+                escalated, reason = parse_escalation_signal(summary)
+                if escalated:
+                    reason_note = reason or "Coding or complex reasoning required."
+                    emit("progress", message=f"Escalating from {used_model} to {smart_model}: {reason_note}")
+                    handoff_prompt = f"{prompt}\n\n[Model Handoff Note from {used_model}]: {reason_note}"
+                    smart_models = list(dict.fromkeys([smart_model, "gemini-3.5-flash", primary_model]))
+                    summary, _ = await run_chat_with_fallback(
+                        Agent, smart_models, system_instructions, handoff_prompt, attachments, sequence, step_error_handler, loop
                     )
-                    if is_retryable and idx < max_attempts:
-                        next_model = fallback_models[idx]
-                        err_preview = err_str.replace("\n", " ")[:200]
-                        emit(
-                            "progress",
-                            message=f"Model {current_model} failed ({err_preview}). Falling back to {next_model} (attempt {idx + 1}/{max_attempts})...",
-                        )
-                        await asyncio.sleep(2)
-                    else:
-                        raise
+            else:
+                fallback_models = list(dict.fromkeys([primary_model, "gemini-3.5-flash", "gemini-3.1-flash-lite"]))
+                emit("progress", message=f"Antigravity Agent initialized with workspace capabilities (model: {fallback_models[0]}).")
+                summary, _ = await run_chat_with_fallback(
+                    Agent, fallback_models, system_instructions, prompt, attachments, sequence, step_error_handler, loop
+                )
         finally:
             heartbeat_task.cancel()
             try:

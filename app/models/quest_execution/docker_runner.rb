@@ -148,6 +148,9 @@ class QuestExecution::DockerRunner
       if (gemini_model = docker_setting_optional(:gemini_model))
         env["GEMINI_MODEL"] = gemini_model
       end
+      if (gemini_smart_model = docker_setting_optional(:gemini_smart_model))
+        env["GEMINI_SMART_MODEL"] = gemini_smart_model
+      end
 
       @docker_client.create_container(
         name: container_name,
