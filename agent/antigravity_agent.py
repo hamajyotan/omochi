@@ -199,6 +199,48 @@ def build_chat_payload(prompt_text: str, attachments: list[dict]):
     return prompt_text
 
 
+def load_workspace_agents_md(workspace_dir: str, max_chars: int = 24000) -> str | None:
+    """Reads /workspace/AGENTS.md if present so the agent follows repository-specific rules."""
+    agents_path = os.path.join(workspace_dir, "AGENTS.md")
+    if not os.path.isfile(agents_path):
+        return None
+    try:
+        with open(agents_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read().strip()
+    except Exception:
+        return None
+    if not content:
+        return None
+    if len(content) > max_chars:
+        return content[:max_chars] + "\n\n... (truncated; see /workspace/AGENTS.md for full text)"
+    return content
+
+
+def build_system_instructions(workspace_dir: str) -> tuple[str, bool]:
+    base_instructions = (
+        "You are omochi, an autonomous AI coding assistant running inside an isolated workspace (/workspace). "
+        "You have access to tools for navigating, editing, and testing the codebase. "
+        "When asked to implement a feature, fix a bug, or modify files for a Pull Request: "
+        "1) Edit the necessary files in /workspace, 2) Run relevant checks/tests if applicable, and "
+        "3) Stage and commit your changes locally with `git add <files>` and `git commit -m '<concise commit title>'` "
+        "(do NOT run `git push`; the host will automatically push any new local commits and create or update the Pull Request after you finish). "
+        "When only answering a question, investigating, or reviewing a Pull Request (/review), do NOT create any Git commits. "
+        "Be concise, precise, and provide a clear summary of your findings or changes."
+    )
+    agents_md = load_workspace_agents_md(workspace_dir)
+    if not agents_md:
+        return base_instructions, False
+
+    combined = (
+        f"{base_instructions}\n\n"
+        "Repository Instructions (loaded from /workspace/AGENTS.md):\n"
+        "Follow the repository-specific instructions below unless they conflict with the core execution rules above "
+        "(such as never running `git push` or bypassing container boundaries):\n\n"
+        f"{agents_md}"
+    )
+    return combined, True
+
+
 def build_agent_config(model_name: str, system_instructions: str):
     from google.antigravity import CapabilitiesConfig, LocalAgentConfig
 
@@ -342,16 +384,9 @@ async def main():
     try:
         from google.antigravity import Agent
 
-        system_instructions = (
-            "You are omochi, an autonomous AI coding assistant running inside an isolated workspace (/workspace). "
-            "You have access to tools for navigating, editing, and testing the codebase. "
-            "When asked to implement a feature, fix a bug, or modify files for a Pull Request: "
-            "1) Edit the necessary files in /workspace, 2) Run relevant checks/tests if applicable, and "
-            "3) Stage and commit your changes locally with `git add <files>` and `git commit -m '<concise commit title>'` "
-            "(do NOT run `git push`; the host will automatically push any new local commits and create or update the Pull Request after you finish). "
-            "When only answering a question, investigating, or reviewing a Pull Request (/review), do NOT create any Git commits. "
-            "Be concise, precise, and provide a clear summary of your findings or changes."
-        )
+        system_instructions, agents_md_loaded = build_system_instructions(WORKSPACE_DIR)
+        if agents_md_loaded:
+            emit("progress", message="Loaded repository instructions from /workspace/AGENTS.md.")
 
         primary_model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"
         fallback_models = list(dict.fromkeys([primary_model, "gemini-3.5-flash", "gemini-3.1-flash-lite"]))
