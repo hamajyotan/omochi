@@ -152,7 +152,7 @@ class QuestExecutionDockerRunnerTest < ActiveSupport::TestCase
       payload: { "key" => "name", "category" => "profile", "content" => "名前は太郎" }
     )
 
-    quest = Quest.start!(
+    instruction = Quest.start!(
       title: "Slack memory quest",
       body: "こんにちは",
       source_platform: "slack",
@@ -160,7 +160,7 @@ class QuestExecutionDockerRunnerTest < ActiveSupport::TestCase
       metadata: { "slack_user_id" => "U777", "slack_message_ts" => "1700000000.0001" },
       enqueue: false
     )
-    execution = quest.claim_next_instruction!
+    execution = instruction.quest.claim_next_instruction!
 
     captured_instruction = nil
     @fake_docker_client.on_run = ->(_cid, **_opts, &block) do
