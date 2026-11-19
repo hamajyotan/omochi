@@ -10,7 +10,21 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_15_143500) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_19_135000) do
+  create_table "agent_memories", force: :cascade do |t|
+    t.string "scope_type", null: false
+    t.string "scope_key", null: false
+    t.string "category", default: "context", null: false
+    t.string "memory_key", null: false
+    t.text "content", null: false
+    t.string "source_quest_public_id"
+    t.datetime "last_referenced_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["scope_type", "scope_key", "memory_key"], name: "index_agent_memories_on_scope_and_key", unique: true
+    t.index ["scope_type", "scope_key", "updated_at"], name: "index_agent_memories_on_scope_and_updated_at"
+  end
+
   create_table "external_resources", force: :cascade do |t|
     t.integer "quest_id", null: false
     t.string "platform", null: false

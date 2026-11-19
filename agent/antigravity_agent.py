@@ -260,6 +260,44 @@ def build_system_instructions(
     return "\n\n".join(sections), loaded_sources
 
 
+MEMORY_BLOCK_PATTERN = re.compile(r"<omochi_memory>\s*(.*?)\s*</omochi_memory>", re.DOTALL | re.IGNORECASE)
+
+
+def extract_memory_updates(text: str) -> tuple[str, list[dict]]:
+    """Extracts and strips <omochi_memory> JSON blocks from the final response text."""
+    if not text:
+        return "", []
+
+    updates: list[dict] = []
+    for match in MEMORY_BLOCK_PATTERN.finditer(text):
+        raw_json = match.group(1).strip()
+        if not raw_json:
+            continue
+        try:
+            parsed = json.loads(raw_json)
+        except Exception:
+            continue
+        items = parsed if isinstance(parsed, list) else [parsed]
+        for item in items:
+            if isinstance(item, dict) and str(item.get("key", "")).strip():
+                updates.append(item)
+
+    cleaned = MEMORY_BLOCK_PATTERN.sub("", text).strip()
+    return cleaned, updates
+
+
+def build_memory_instructions() -> str:
+    return (
+        "User Memory Persistence:\n"
+        "- If you learn notable, durable context about the user (such as their name/nickname, personal preferences, "
+        "ongoing goals/tasks they want to do (`follow_up`), or when a previously remembered follow-up item is resolved), "
+        "append a `<omochi_memory>` JSON array at the very end of your response (never inside markdown code fences).\n"
+        '- Format: `<omochi_memory>[{"action":"upsert","key":"short_snake_key","category":"profile|preference|follow_up|context","content":"concise Japanese note"}]</omochi_memory>`\n'
+        '- To remove a resolved or obsolete memory, use `"action":"delete"` with its `"key"`.\n'
+        "- Only emit `<omochi_memory>` when there is genuinely new or updated personal/follow-up context to remember."
+    )
+
+
 ESCALATION_PATTERN = re.compile(r"\[\[ESCALATE_MODEL(?:\s*:\s*(.+?))?\]\]", re.DOTALL)
 
 
@@ -458,6 +496,21 @@ async def main():
                 history_lines.append(f"[Response #{seq} (omochi)]:\n{agent_msg}")
         prompt_parts.append("\n\n".join(history_lines))
 
+    user_memories = instruction.get("user_memories") or {}
+    memory_items = user_memories.get("items") if isinstance(user_memories, dict) else None
+    if memory_items:
+        mem_lines = [
+            "Remembered context about the current user (use naturally when helpful; "
+            "occasionally follow up on open `follow_up` topics without forcing them into every reply):"
+        ]
+        for item in memory_items:
+            cat = item.get("category", "context")
+            key = item.get("key", "")
+            content = item.get("content", "")
+            if content:
+                mem_lines.append(f"- [{cat}] ({key}) {content}")
+        prompt_parts.append("\n".join(mem_lines))
+
     if attachments:
         att_lines = ["Attached image files (provided directly as multimodal input and also saved in `/workspace`; do NOT commit `.omochi_attachments/`):"]
         for att in attachments:
@@ -487,6 +540,7 @@ async def main():
         system_instructions, loaded_sources = build_system_instructions(WORKSPACE_DIR)
         if loaded_sources:
             emit("progress", message=f"Loaded instructions from {', '.join(loaded_sources)}.")
+        system_instructions = f"{system_instructions}\n\n{build_memory_instructions()}"
 
         primary_model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"
         smart_model = os.environ.get("GEMINI_SMART_MODEL", "").strip()
@@ -539,6 +593,21 @@ async def main():
             except BaseException:
                 pass
             logging.getLogger().removeHandler(step_error_handler)
+
+        summary, memory_updates = extract_memory_updates(summary)
+        for mem in memory_updates:
+            action = str(mem.get("action") or "upsert").strip().lower()
+            key = str(mem.get("key") or "").strip()
+            category = str(mem.get("category") or "context").strip().lower()
+            content = str(mem.get("content") or "").strip()
+            emit(
+                "memory",
+                message=f"Memory {action}: {key}",
+                action=action,
+                key=key,
+                category=category,
+                content=content,
+            )
 
         summary = summary.strip()
         if not summary:

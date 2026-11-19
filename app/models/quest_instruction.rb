@@ -43,6 +43,14 @@ class QuestInstruction < ApplicationRecord
     (metadata.is_a?(Hash) && metadata["slack_message_ts"].presence) || external_resource&.external_id
   end
 
+  def memory_scope
+    return nil unless metadata.is_a?(Hash)
+
+    if source_platform == "slack" && metadata["slack_user_id"].present?
+      [ "user", "slack:#{metadata['slack_user_id']}" ]
+    end
+  end
+
   # Re-queues a failed or cancelled instruction so a new QuestExecution will
   # process it while keeping all past QuestExecutions intact.
   def retry!

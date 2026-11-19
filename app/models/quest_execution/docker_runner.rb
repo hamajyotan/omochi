@@ -59,6 +59,7 @@ class QuestExecution::DockerRunner
     ) do |line, stream|
       event = execution.record_output_line!(line, stream: stream)
       last_heartbeat = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      apply_memory_event!(execution, event) if event.event_type == "memory"
       completed_event = event if event.event_type == "completed"
       failed_event = event if event.event_type == "failed"
     end
@@ -105,6 +106,11 @@ class QuestExecution::DockerRunner
           }
         end
 
+      user_memories =
+        if (scope = instruction.memory_scope)
+          AgentMemory.prompt_payload_for(scope_type: scope[0], scope_key: scope[1])
+        end
+
       payload = {
         quest_public_id: quest.public_id,
         execution_id: execution.id,
@@ -114,7 +120,8 @@ class QuestExecution::DockerRunner
         received_at: instruction.received_at.iso8601,
         history: prior_history,
         git_context: git_context,
-        attachments: attachments.presence
+        attachments: attachments.presence,
+        user_memories: user_memories
       }.compact
       File.write(workspace_dir.join(INSTRUCTION_FILENAME), JSON.pretty_generate(payload))
       [ workspace_dir, git_context ]
@@ -263,6 +270,20 @@ class QuestExecution::DockerRunner
       execution.succeed!(result_summary: summary, exit_code: 0)
     rescue Omochi::GitHub::PullRequestMerger::MergeError, Omochi::GitHub::Error => e
       execution.fail!(error_kind: "agent_error", error_message: "Pull Request のマージに失敗しました: #{e.message}")
+    end
+
+    def apply_memory_event!(execution, event)
+      scope = execution.instruction.memory_scope
+      return unless scope
+
+      AgentMemory.apply_event!(
+        scope_type: scope[0],
+        scope_key: scope[1],
+        payload: event.payload,
+        quest_public_id: execution.quest.public_id
+      )
+    rescue StandardError => e
+      Rails.error.report(e, context: { execution_id: execution.id, event_id: event.id })
     end
 
     def docker_setting(key)

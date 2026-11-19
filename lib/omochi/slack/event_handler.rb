@@ -61,6 +61,7 @@ module Omochi
         return ignored if body.start_with?("#")
 
         metadata = { "slack_message_ts" => ts }
+        metadata["slack_user_id"] = event["user"].to_s.strip if event["user"].present?
         metadata["attachments"] = attachments if attachments.any?
 
         if resource

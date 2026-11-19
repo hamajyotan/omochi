@@ -144,4 +144,42 @@ class QuestExecutionDockerRunnerTest < ActiveSupport::TestCase
     assert execution.succeeded?
     assert_equal "failed", execution.cleanup_status
   end
+
+  test "injects user_memories into instruction payload and persists emitted memory events" do
+    AgentMemory.apply_event!(
+      scope_type: "user",
+      scope_key: "slack:U777",
+      payload: { "key" => "name", "category" => "profile", "content" => "名前は太郎" }
+    )
+
+    quest = Quest.start!(
+      title: "Slack memory quest",
+      body: "こんにちは",
+      source_platform: "slack",
+      source_event_id: "Ev_mem_1",
+      metadata: { "slack_user_id" => "U777", "slack_message_ts" => "1700000000.0001" },
+      enqueue: false
+    )
+    execution = quest.claim_next_instruction!
+
+    captured_instruction = nil
+    @fake_docker_client.on_run = ->(_cid, **_opts, &block) do
+      ws = @fake_docker_client.created_containers.last[:workspace_path]
+      captured_instruction = JSON.parse(File.read(File.join(ws, ".omochi_instruction.json")))
+      block.call(%({"type":"started","message":"hi"}\n), "stdout")
+      block.call(%({"type":"memory","action":"upsert","key":"todo_mise","category":"follow_up","content":"Ruby 3.4 の検証予定"}\n), "stdout")
+      block.call(%({"type":"completed","summary":"こんにちはにゃ！"}\n), "stdout")
+      0
+    end
+
+    QuestExecution::DockerRunner.new(docker_client: @fake_docker_client).run(execution)
+
+    assert_equal "user:slack:U777", captured_instruction.dig("user_memories", "scope")
+    assert_equal "名前は太郎", captured_instruction.dig("user_memories", "items", 0, "content")
+
+    learned = AgentMemory.find_by(scope_type: "user", scope_key: "slack:U777", memory_key: "todo_mise")
+    assert_not_nil learned
+    assert_equal "follow_up", learned.category
+    assert_equal "Ruby 3.4 の検証予定", learned.content
+  end
 end
