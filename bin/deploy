@@ -53,12 +53,26 @@ bin/rails db:prepare RAILS_ENV=production
 echo "--> Precompiling assets..."
 bin/rails assets:precompile RAILS_ENV=production
 
-# 7. Restart systemd user services
+# 7. Rebuild Agent Docker image if docker/agent changed
+AGENT_IMAGE="${OMOCHI_AGENT_IMAGE:-ruby:4.0}"
+AGENT_RUNTIME="${OMOCHI_AGENT_RUNTIME:-mock}"
+if [[ "${AGENT_RUNTIME}" == "antigravity" || "${AGENT_IMAGE}" == omochi-agent:* ]] && [ -d "docker/agent" ]; then
+  DESIRED_AGENT_HASH="$(find docker/agent -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | awk '{print $1}')"
+  CURRENT_AGENT_HASH="$(docker image inspect --format '{{ index .Config.Labels "omochi.agent_hash" }}' "${AGENT_IMAGE}" 2>/dev/null || true)"
+  if [ "${CURRENT_AGENT_HASH}" != "${DESIRED_AGENT_HASH}" ]; then
+    echo "--> Building Agent Docker image ${AGENT_IMAGE} (hash: ${DESIRED_AGENT_HASH:0:12})..."
+    docker build --label "omochi.agent_hash=${DESIRED_AGENT_HASH}" -t "${AGENT_IMAGE}" docker/agent
+  else
+    echo "--> Agent Docker image ${AGENT_IMAGE} is up to date (${DESIRED_AGENT_HASH:0:12})."
+  fi
+fi
+
+# 8. Restart systemd user services
 echo "--> Restarting user services..."
 systemctl --user daemon-reload
 systemctl --user restart omochi-web omochi-worker omochi-socket
 
-# 8. Check health
+# 9. Check health
 echo "--> Checking service status..."
 sleep 2
 systemctl --user is-active --quiet omochi-web || {
