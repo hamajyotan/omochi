@@ -1,25 +1,29 @@
 <% content_for :title, "New Quest | omochi" %>
 
-<h1><span>✨</span> New Quest</h1>
+<section class="form-card">
+  <h1><span>✨</span> New Quest</h1>
 
-<%= form_with model: @form, url: quests_path, class: "form" do |f| %>
-  <% if @form.errors.any? %>
-    <ul class="errors">
-      <% @form.errors.full_messages.each do |message| %>
-        <li><%= message %></li>
-      <% end %>
-    </ul>
+  <%= form_with model: @form, url: quests_path, class: "form" do |f| %>
+    <% if @form.errors.any? %>
+      <ul class="errors">
+        <% @form.errors.full_messages.each do |message| %>
+          <li><%= message %></li>
+        <% end %>
+      </ul>
+    <% end %>
+
+    <div class="field">
+      <%= f.label :title, "タイトル (Title)" %>
+      <%= f.text_field :title, maxlength: 200, required: true, placeholder: "Quest のタイトルを入力してください..." %>
+    </div>
+
+    <div class="field">
+      <%= f.label :body, "指示内容 (Instruction)" %>
+      <%= f.text_area :body, rows: 6, required: true, placeholder: "Agent への具体的な指示を書いてくださいにゃ..." %>
+    </div>
+
+    <div class="form-actions">
+      <%= f.submit "✨ Create Quest", class: "btn btn--large" %>
+    </div>
   <% end %>
-
-  <div class="field">
-    <%= f.label :title, "タイトル (Title)" %>
-    <%= f.text_field :title, maxlength: 200, required: true, placeholder: "Quest のタイトルを入力してください..." %>
-  </div>
-
-  <div class="field">
-    <%= f.label :body, "指示内容 (Instruction)" %>
-    <%= f.text_area :body, rows: 6, required: true, placeholder: "Agent への具体的な指示を書いてくださいにゃ..." %>
-  </div>
-
-  <%= f.submit "✨ Create Quest", class: "btn" %>
-<% end %>
+</section>
