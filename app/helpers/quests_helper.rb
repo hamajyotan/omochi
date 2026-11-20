@@ -13,15 +13,15 @@ module QuestsHelper
 
   def status_badge(status)
     icon = case status.to_s
-           when "pending" then "💤 "
-           when "queued" then "⏳ "
-           when "running", "processing" then "✨ "
-           when "preparing" then "🌱 "
-           when "completed", "succeeded", "processed" then "🎉 "
-           when "failed" then "😿 "
-           when "cancelled" then "☁️ "
-           else ""
-           end
+    when "pending" then "💤 "
+    when "queued" then "⏳ "
+    when "running", "processing" then "✨ "
+    when "preparing" then "🌱 "
+    when "completed", "succeeded", "processed" then "🎉 "
+    when "failed" then "😿 "
+    when "cancelled" then "☁️ "
+    else ""
+    end
     tag.span("#{icon}#{status}", class: "badge badge--#{status}")
   end
 
