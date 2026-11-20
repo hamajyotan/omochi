@@ -238,6 +238,10 @@ h2 {
   font-size: 0.8em;
   padding: 0.25rem 0.75rem;
 }
+.btn--large {
+  font-size: 0.98rem;
+  padding: 0.65rem 1.6rem;
+}
 .btn--secondary {
   background: #fff;
   color: var(--accent);
@@ -412,11 +416,27 @@ h2 {
 }
 
 /* Forms & Inputs */
+.form-card {
+  max-width: 680px;
+  margin: 1.5rem auto;
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  padding: 2rem 2.5rem;
+  border: 2px solid var(--border);
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(8px);
+}
+.form-card h1 {
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px dashed var(--border);
+}
+
 .form {
   margin-top: 1rem;
   display: grid;
-  gap: 1rem;
-  max-width: 700px;
+  gap: 1.25rem;
+  width: 100%;
 }
 .field {
   display: grid;
@@ -429,7 +449,8 @@ h2 {
 }
 .field input[type=text], .field textarea {
   font: inherit;
-  padding: 0.65rem 0.9rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
   border: 2px solid var(--border);
   border-radius: var(--radius-md);
   background: #fff;
@@ -441,6 +462,14 @@ h2 {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 4px rgba(255, 133, 162, 0.2);
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 0.25rem;
+}
+.form .btn {
+  justify-self: start;
 }
 .errors {
   color: #b91c1c;
