@@ -37,24 +37,34 @@ module Omochi
 
         pr_resource = pull_request_resource(execution)
         if pr_resource
-          sync_pull_request!(
-            client: client,
+          pr_number = pr_resource.external_id.to_s
+          pr_data = client.fetch_pull_request(
             installation_id: installation_id,
-            token: token,
             repository: repository,
-            pull_number: pr_resource.external_id.to_s,
-            workspace_dir: workspace_dir
+            pull_number: pr_number
           )
-        else
-          sync_default_branch!(
-            client: client,
-            installation_id: installation_id,
-            token: token,
-            repository: repository,
-            quest_public_id: execution.quest.public_id,
-            workspace_dir: workspace_dir
-          )
+
+          unless pr_closed?(pr_data)
+            return sync_pull_request!(
+              client: client,
+              installation_id: installation_id,
+              token: token,
+              repository: repository,
+              pull_number: pr_number,
+              workspace_dir: workspace_dir,
+              pr_data: pr_data
+            )
+          end
         end
+
+        sync_default_branch!(
+          client: client,
+          installation_id: installation_id,
+          token: token,
+          repository: repository,
+          quest: execution.quest,
+          workspace_dir: workspace_dir
+        )
       rescue StandardError => e
         sanitized = sanitize_error_message(e.message)
         Rails.error.report(e, context: { execution_id: execution.id, sanitized_message: sanitized })
@@ -92,12 +102,14 @@ module Omochi
 
         run_authenticated_git(workspace_dir, token, "push", "origin", "HEAD:refs/heads/#{remote_branch}")
 
-        pr_resource = pull_request_resource(execution)
-        if pr_resource
+        if git_context["mode"] == "pull_request" && git_context["pull_number"].present?
+          pull_number = git_context["pull_number"].to_i
+          pr_resource = pull_request_resource(execution)
+          pr_url = pr_resource&.external_id.to_i == pull_number ? pr_resource.url : nil
           {
             "action" => "updated_pr",
-            "pull_number" => pr_resource.external_id.to_i,
-            "url" => pr_resource.url.presence || "https://github.com/#{repository}/pull/#{pr_resource.external_id}",
+            "pull_number" => pull_number,
+            "url" => pr_url.presence || "https://github.com/#{repository}/pull/#{pull_number}",
             "branch" => remote_branch,
             "head_sha" => current_sha,
             "commits_count" => commits_ahead
@@ -246,9 +258,16 @@ module Omochi
             return inst_res
           end
 
-          execution.quest.external_resources.find do |r|
-            r.platform == "github" && r.resource_type == "pull_request"
-          end
+          execution.quest.external_resources
+            .where(platform: "github", resource_type: "pull_request")
+            .order(id: :desc)
+            .first
+        end
+
+        def pr_closed?(pr_data)
+          return false unless pr_data.is_a?(Hash)
+
+          pr_data["state"].to_s == "closed" || pr_data["merged"] == true
         end
 
         def github_resource_for(execution)
@@ -258,8 +277,8 @@ module Omochi
           execution.quest.external_resources.find { |r| r.platform == "github" }
         end
 
-        def sync_pull_request!(client:, installation_id:, token:, repository:, pull_number:, workspace_dir:)
-          pr_data = client.fetch_pull_request(
+        def sync_pull_request!(client:, installation_id:, token:, repository:, pull_number:, workspace_dir:, pr_data: nil)
+          pr_data ||= client.fetch_pull_request(
             installation_id: installation_id,
             repository: repository,
             pull_number: pull_number
@@ -300,7 +319,7 @@ module Omochi
           }
         end
 
-        def sync_default_branch!(client:, installation_id:, token:, repository:, quest_public_id:, workspace_dir:)
+        def sync_default_branch!(client:, installation_id:, token:, repository:, quest:, workspace_dir:)
           default_branch =
             begin
               repo_data = client.fetch_repository(installation_id: installation_id, repository: repository)
@@ -312,7 +331,13 @@ module Omochi
           ensure_git_repo!(workspace_dir, repository)
           refspec = "+HEAD:refs/remotes/origin/default_head"
           run_authenticated_git(workspace_dir, token, "fetch", "--depth=50", "--no-tags", "origin", refspec)
-          branch_name = "omochi/#{quest_public_id}"
+          existing_pr_count = quest.external_resources.where(platform: "github", resource_type: "pull_request").count
+          branch_name =
+            if existing_pr_count.zero?
+              "omochi/#{quest.public_id}"
+            else
+              "omochi/#{quest.public_id}-#{existing_pr_count + 1}"
+            end
           if local_branch_exists?(workspace_dir, branch_name)
             run_git(workspace_dir, "checkout", branch_name)
           else

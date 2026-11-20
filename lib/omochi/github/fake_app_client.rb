@@ -64,6 +64,7 @@ module Omochi
         key = "#{repository}##{pull_number}"
         @pull_requests[key] || {
           "number" => pull_number.to_i,
+          "state" => "open",
           "title" => "PR ##{pull_number}",
           "body" => "PR description",
           "html_url" => "https://github.com/#{repository}/pull/#{pull_number}",

@@ -219,6 +219,49 @@ class Omochi::GitHub::WorkspaceSyncerTest < ActiveSupport::TestCase
     github_config[:repositories] = original_repositories if github_config
   end
 
+  test "creates a new branch and new PR when previous PR on the Quest is closed/merged" do
+    quest = Quest.create!(title: "Follow-up PR after merge")
+    quest.external_resources.create!(
+      platform: "github",
+      resource_type: "pull_request",
+      scope_key: "hamajyotan/omochi",
+      external_id: "42",
+      url: "https://github.com/hamajyotan/omochi/pull/42"
+    )
+    quest.receive_instruction!(body: "Add follow-up change", source_platform: "slack", enqueue: false)
+    exec = quest.claim_next_instruction!
+
+    @fake_client.pull_requests["hamajyotan/omochi#42"] = {
+      "number" => 42,
+      "state" => "closed",
+      "merged" => true,
+      "title" => "PR #42",
+      "base" => { "ref" => "main", "sha" => "base_sha" },
+      "head" => { "ref" => "omochi/#{quest.public_id}", "sha" => "head_sha" }
+    }
+
+    syncer = Omochi::GitHub::WorkspaceSyncer.new(
+      app_client: @fake_client,
+      remote_url_resolver: ->(_repo) { @remote_repo }
+    )
+
+    workspace_dir = File.join(@tmp_root, "ws_after_merge")
+    git_context = syncer.sync!(exec, workspace_dir)
+
+    assert_equal "branch", git_context["mode"]
+    assert_equal "omochi/#{quest.public_id}-2", git_context["branch"]
+
+    File.write(File.join(workspace_dir, "followup.txt"), "New change\n")
+    system("git", "-C", workspace_dir, "add", "followup.txt", exception: true)
+    system("git", "-C", workspace_dir, "commit", "-m", "Follow-up fix", out: File::NULL, err: File::NULL, exception: true)
+
+    result = syncer.publish_changes!(exec, workspace_dir, git_context: git_context, summary: "Added follow-up")
+    assert_equal "created_pr", result["action"]
+    assert_equal 101, result["pull_number"]
+    assert_equal "https://github.com/hamajyotan/omochi/pull/101", result["url"]
+    assert_equal "omochi/#{quest.public_id}-2", result["branch"]
+  end
+
   private
     def setup_local_remote_repo(bare_path)
       work_path = File.join(@tmp_root, "seed_work")
