@@ -231,7 +231,7 @@ class Omochi::GitHub::WorkspaceSyncerTest < ActiveSupport::TestCase
     quest.receive_instruction!(body: "Add follow-up change", source_platform: "slack", enqueue: false)
     exec = quest.claim_next_instruction!
 
-    @fake_client.pull_requests["hamajyotan/omochi#42"] = {
+    @fake_app_client.pull_requests["hamajyotan/omochi#42"] = {
       "number" => 42,
       "state" => "closed",
       "merged" => true,
@@ -241,7 +241,7 @@ class Omochi::GitHub::WorkspaceSyncerTest < ActiveSupport::TestCase
     }
 
     syncer = Omochi::GitHub::WorkspaceSyncer.new(
-      app_client: @fake_client,
+      app_client: @fake_app_client,
       remote_url_resolver: ->(_repo) { @remote_repo }
     )
 
