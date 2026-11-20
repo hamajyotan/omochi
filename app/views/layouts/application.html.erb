@@ -19,20 +19,26 @@
 
   <body>
     <header class="site-header">
-      <%= link_to "🍡 omochi", root_path, class: "site-header__brand" %>
+      <%= link_to root_path, class: "site-header__brand" do %>
+        <span>🍡</span> omochi
+      <% end %>
       <nav>
         <% if logged_in? %>
-          <%= link_to "Quests", quests_path %>
-          <%= link_to "New Quest", new_quest_path %>
+          <%= link_to quests_path do %>
+            📜 Quests
+          <% end %>
+          <%= link_to new_quest_path do %>
+            ✨ New Quest
+          <% end %>
           <div class="user-menu">
             <% if current_user["avatar_url"].present? %>
               <%= image_tag current_user["avatar_url"], class: "avatar", alt: current_user["login"] %>
             <% end %>
             <span class="user-menu__login mono">@<%= current_user["login"] %></span>
-            <%= button_to "Log out", logout_path, method: :delete, class: "btn btn--small", data: { turbo: false } %>
+            <%= button_to "Log out", logout_path, method: :delete, class: "btn btn--small btn--secondary", data: { turbo: false } %>
           </div>
         <% else %>
-          <%= link_to "Log in", login_path unless current_page?(login_path) %>
+          <%= link_to "🔐 Log in", login_path, class: "btn btn--small" unless current_page?(login_path) %>
         <% end %>
       </nav>
     </header>

@@ -3,7 +3,7 @@
 <%= turbo_stream_from :quests %>
 
 <div class="page-header">
-  <h1>Quests</h1>
+  <h1><span>📜</span> Quests</h1>
   <nav class="status-filters" aria-label="Status filter">
     <%= link_to "All", quests_path, class: ("active" if @status_filter.nil?) %>
     <% Quest.statuses.each_key do |status| %>
@@ -13,7 +13,7 @@
 </div>
 
 <% if @quests.empty? %>
-  <p class="empty">Quest はまだありません。<%= link_to "新しい Quest を作成", new_quest_path %></p>
+  <p class="empty">🍡 Quest はまだありませんにゃ。<%= link_to "✨ 新しい Quest を作成する", new_quest_path %></p>
 <% else %>
   <table class="table">
     <thead>
