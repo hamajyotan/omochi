@@ -8,10 +8,10 @@
       <h1><%= quest.title %></h1>
       <div class="quest-actions">
         <% if quest.cancellable? %>
-          <%= button_to "Cancel Quest", cancel_quest_path(quest), method: :post, class: "btn btn--danger" %>
+          <%= button_to "🛑 Cancel Quest", cancel_quest_path(quest), method: :post, class: "btn btn--danger" %>
         <% end %>
         <% if quest.cancelled? || quest.failed? %>
-          <%= button_to "Reopen Quest", reopen_quest_path(quest), method: :post, class: "btn" %>
+          <%= button_to "🔄 Reopen Quest", reopen_quest_path(quest), method: :post, class: "btn" %>
         <% end %>
       </div>
     </div>
@@ -23,9 +23,9 @@
   </div>
 
   <section>
-    <h2>External Resources</h2>
+    <h2>🔗 External Resources</h2>
     <% if external_resources.empty? %>
-      <p class="empty">関連付けられた外部リソースはありません。</p>
+      <p class="empty">🍡 関連付けられた外部リソースはありませんにゃ。</p>
     <% else %>
       <ul>
         <% external_resources.each do |resource| %>
@@ -39,7 +39,7 @@
   </section>
 
   <section>
-    <h2>Instructions Queue</h2>
+    <h2>📥 Instructions Queue</h2>
     <table class="table">
       <thead>
         <tr>
@@ -61,7 +61,7 @@
             <td><%= format_time(instruction.received_at) %></td>
             <td>
               <% if instruction.retryable? %>
-                <%= button_to "Retry", retry_quest_instruction_path(quest, instruction), method: :post, class: "btn btn--small" %>
+                <%= button_to "🔄 Retry", retry_quest_instruction_path(quest, instruction), method: :post, class: "btn btn--small btn--secondary" %>
               <% else %>
                 —
               <% end %>
@@ -73,9 +73,9 @@
   </section>
 
   <section>
-    <h2>Executions</h2>
+    <h2>⚡ Executions</h2>
     <% if executions.empty? %>
-      <p class="empty">Execution はまだありません。</p>
+      <p class="empty">🍡 Execution はまだありませんにゃ。</p>
     <% else %>
       <table class="table">
         <thead>
@@ -120,7 +120,7 @@
                 <% end %>
                 <% if execution.events.any? %>
                   <details class="execution-events" <%= "open" if execution.active? || execution.failed? %>>
-                    <summary>Events &amp; Logs (<%= execution.events.size %>)</summary>
+                    <summary>📜 Events &amp; Logs (<%= execution.events.size %>)</summary>
                     <ul class="event-log">
                       <% execution.events.each do |event| %>
                         <li id="<%= dom_id(event) %>" class="event-log__item event-log__item--<%= event.event_type %>">

@@ -5,16 +5,16 @@
 <%= render "quests/detail", quest: @quest %>
 
 <section>
-  <h2>Add Instruction</h2>
+  <h2>💬 Add Instruction</h2>
   <% if @quest.cancelled? %>
-    <p class="meta">この Quest はキャンセルされています。追加の指示を送るには上の「Reopen Quest」から再開してください。</p>
+    <p class="meta">この Quest はキャンセルされています。追加の指示を送るには上の「Reopen Quest」から再開してくださいにゃ。</p>
   <% else %>
     <%= form_with model: @new_instruction, url: quest_instructions_path(@quest), class: "form" do |f| %>
       <div class="field">
         <%= f.label :body, "追加の指示" %>
-        <%= f.text_area :body, rows: 3, required: true %>
+        <%= f.text_area :body, rows: 3, required: true, placeholder: "追加の指示を入力してくださいにゃ..." %>
       </div>
-      <%= f.submit "Send Instruction", class: "btn" %>
+      <%= f.submit "✉️ Send Instruction", class: "btn" %>
     <% end %>
   <% end %>
 </section>
