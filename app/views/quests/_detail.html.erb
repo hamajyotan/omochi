@@ -1,5 +1,4 @@
-<% instructions = quest.instructions.includes(:external_resource) %>
-<% executions = quest.executions.includes(:instruction, :events) %>
+<% instructions = quest.instructions.in_queue_order.includes(:external_resource, executions: :events) %>
 <% external_resources = quest.external_resources.order(:id) %>
 
 <div id="<%= dom_id(quest, :detail) %>">
@@ -22,120 +21,138 @@
     <p class="meta">Created <%= format_time(quest.created_at) %> · Updated <%= format_time(quest.updated_at) %></p>
   </div>
 
-  <section>
+  <section class="quest-resources">
     <h2>🔗 External Resources</h2>
     <% if external_resources.empty? %>
       <p class="empty">🍡 関連付けられた外部リソースはありませんにゃ。</p>
     <% else %>
-      <ul>
+      <div class="resource-pills">
         <% external_resources.each do |resource| %>
-          <li id="<%= dom_id(resource) %>">
-            <%= resource.platform %> / <%= resource.resource_type %>:
+          <span id="<%= dom_id(resource) %>" class="resource-pill">
+            <span class="resource-pill__label"><%= resource.platform %> / <%= resource.resource_type %></span>
             <%= external_resource_link(resource) %>
-          </li>
+          </span>
         <% end %>
-      </ul>
+      </div>
     <% end %>
   </section>
 
-  <section>
-    <h2>📥 Instructions Queue</h2>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Instruction</th>
-          <th>Source</th>
-          <th>Status</th>
-          <th>Received</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% instructions.each do |instruction| %>
-          <tr id="<%= dom_id(instruction) %>">
-            <td><%= instruction.sequence %></td>
-            <td class="pre"><%= instruction.body %></td>
-            <td><%= instruction.source_platform %></td>
-            <td><%= status_badge(instruction.status) %></td>
-            <td><%= format_time(instruction.received_at) %></td>
-            <td>
-              <% if instruction.retryable? %>
-                <%= button_to "🔄 Retry", retry_quest_instruction_path(quest, instruction), method: :post, class: "btn btn--small btn--secondary" %>
-              <% else %>
-                —
-              <% end %>
-            </td>
-          </tr>
-        <% end %>
-      </tbody>
-    </table>
-  </section>
-
-  <section>
-    <h2>⚡ Executions</h2>
-    <% if executions.empty? %>
-      <p class="empty">🍡 Execution はまだありませんにゃ。</p>
+  <section class="quest-conversation">
+    <h2>💬 Conversation</h2>
+    <% if instructions.empty? %>
+      <p class="empty">🍡 まだ会話はありませんにゃ。</p>
     <% else %>
-      <table class="table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Instruction</th>
-            <th>Status</th>
-            <th>Container / Cleanup</th>
-            <th>Started</th>
-            <th>Duration</th>
-            <th>Result / Error / Events</th>
-          </tr>
-        </thead>
-        <tbody>
-          <% executions.each do |execution| %>
-            <tr id="<%= dom_id(execution) %>">
-              <td><%= execution.id %></td>
-              <td>#<%= execution.instruction.sequence %></td>
-              <td>
-                <%= status_badge(execution.status) %>
-                <% if execution.exit_code %>
-                  <span class="mono">(exit <%= execution.exit_code %>)</span>
-                <% end %>
-              </td>
-              <td class="mono">
-                <% if execution.container_id.present? %>
-                  <%= execution.container_id.truncate(16, omission: "…") %>
-                  / <%= execution.cleanup_status %>
-                <% else %>
-                  —
-                <% end %>
-              </td>
-              <td><%= format_time(execution.started_at) %></td>
-              <td><%= format_duration(execution.duration) %></td>
-              <td class="pre">
-                <% if execution.error_kind %>
-                  <div class="execution-error">
-                    <strong><%= execution.error_kind %></strong>: <%= execution.error_message %>
+      <div class="chat-thread">
+        <% instructions.each do |instruction| %>
+          <% instruction_executions = instruction.executions.sort_by(&:id) %>
+
+          <div id="<%= dom_id(instruction) %>" class="chat-row chat-row--user">
+            <div class="chat-message chat-message--user">
+              <div class="chat-meta chat-meta--user">
+                <span class="chat-speaker">
+                  <%= instruction.actor_identifier.presence || "User" %>
+                </span>
+                <span class="chat-source"><%= instruction.source_platform %></span>
+                <span>#<%= instruction.sequence %></span>
+                <%= status_badge(instruction.status) %>
+                <span><%= format_time(instruction.received_at) %></span>
+              </div>
+              <div class="chat-bubble chat-bubble--user pre"><%= instruction.body %></div>
+              <% if instruction.retryable? %>
+                <div class="chat-bubble-actions">
+                  <%= button_to "🔄 Retry", retry_quest_instruction_path(quest, instruction), method: :post, class: "btn btn--small btn--secondary" %>
+                </div>
+              <% end %>
+            </div>
+          </div>
+
+          <% if instruction_executions.empty? %>
+            <div class="chat-system-note">
+              ⏳ 実行キューで順番待ちしていますにゃ…
+            </div>
+          <% else %>
+            <% instruction_executions.each do |execution| %>
+              <% ordered_events = execution.events.sort_by(&:sequence) %>
+              <div id="<%= dom_id(execution) %>" class="chat-execution-block">
+                <details class="chat-logs" <%= "open" if execution.active? || execution.failed? %>>
+                  <summary class="chat-logs__summary">
+                    <span class="chat-logs__title">
+                      📜 実行ログ #<%= execution.id %>
+                    </span>
+                    <%= status_badge(execution.status) %>
+                    <% if execution.duration %>
+                      <span class="meta"><%= format_duration(execution.duration) %></span>
+                    <% end %>
+                    <% if execution.exit_code %>
+                      <span class="mono meta">(exit <%= execution.exit_code %>)</span>
+                    <% end %>
+                    <span class="meta">(<%= ordered_events.size %> events)</span>
+                  </summary>
+                  <div class="chat-logs__body">
+                    <div class="chat-logs__info mono">
+                      <span>Started: <%= format_time(execution.started_at) %></span>
+                      <% if execution.container_id.present? %>
+                        <span>Container: <%= execution.container_id.truncate(16, omission: "…") %> (<%= execution.cleanup_status %>)</span>
+                      <% end %>
+                    </div>
+                    <% if ordered_events.any? %>
+                      <ul class="event-log">
+                        <% ordered_events.each do |event| %>
+                          <li id="<%= dom_id(event) %>" class="event-log__item event-log__item--<%= event.event_type %>">
+                            <span class="mono">#<%= event.sequence %> [<%= event.event_type %>]</span>
+                            <%= event.message %>
+                          </li>
+                        <% end %>
+                      </ul>
+                    <% else %>
+                      <p class="meta">ログはまだありません。</p>
+                    <% end %>
+                  </div>
+                </details>
+
+                <% if execution.error_kind.present? %>
+                  <div class="chat-row chat-row--agent">
+                    <div class="chat-avatar" aria-hidden="true">🐱</div>
+                    <div class="chat-message chat-message--agent">
+                      <div class="chat-meta">
+                        <strong>omochi</strong>
+                        <%= status_badge(execution.status) %>
+                        <span><%= format_time(execution.finished_at || execution.updated_at) %></span>
+                      </div>
+                      <div class="chat-bubble chat-bubble--error pre"><strong><%= execution.error_kind %></strong>: <%= execution.error_message %></div>
+                    </div>
                   </div>
                 <% elsif execution.result_summary.present? %>
-                  <div class="execution-result"><%= execution.result_summary %></div>
+                  <div class="chat-row chat-row--agent">
+                    <div class="chat-avatar" aria-hidden="true">🐱</div>
+                    <div class="chat-message chat-message--agent">
+                      <div class="chat-meta">
+                        <strong>omochi</strong>
+                        <%= status_badge(execution.status) %>
+                        <span><%= format_time(execution.finished_at || execution.updated_at) %></span>
+                      </div>
+                      <div class="chat-bubble chat-bubble--agent pre"><%= execution.result_summary %></div>
+                    </div>
+                  </div>
+                <% elsif execution.active? %>
+                  <div class="chat-row chat-row--agent">
+                    <div class="chat-avatar" aria-hidden="true">🐱</div>
+                    <div class="chat-message chat-message--agent">
+                      <div class="chat-meta">
+                        <strong>omochi</strong>
+                        <%= status_badge(execution.status) %>
+                      </div>
+                      <div class="chat-bubble chat-bubble--thinking">
+                        🍡 作業中ですにゃ…（上の実行ログからリアルタイムで様子を見られます）
+                      </div>
+                    </div>
+                  </div>
                 <% end %>
-                <% if execution.events.any? %>
-                  <details class="execution-events" <%= "open" if execution.active? || execution.failed? %>>
-                    <summary>📜 Events &amp; Logs (<%= execution.events.size %>)</summary>
-                    <ul class="event-log">
-                      <% execution.events.each do |event| %>
-                        <li id="<%= dom_id(event) %>" class="event-log__item event-log__item--<%= event.event_type %>">
-                          <span class="mono">#<%= event.sequence %> [<%= event.event_type %>]</span>
-                          <%= event.message %>
-                        </li>
-                      <% end %>
-                    </ul>
-                  </details>
-                <% end %>
-              </td>
-            </tr>
+              </div>
+            <% end %>
           <% end %>
-        </tbody>
-      </table>
+        <% end %>
+      </div>
     <% end %>
   </section>
 </div>

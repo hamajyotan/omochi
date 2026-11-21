@@ -65,8 +65,8 @@ class MvpEndToEndTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_select "h1", "Implement the login page"
     assert_select ".mono", text: quest.public_id
-    assert_select "li", text: /T_MVP\/C_DEV 1700000100\.000001/
-    assert_select "tr##{ActionView::RecordIdentifier.dom_id(execution)}"
+    assert_select ".resource-pill", text: /T_MVP\/C_DEV 1700000100\.000001/
+    assert_select "##{ActionView::RecordIdentifier.dom_id(execution)}"
     assert_select ".event-log__item--completed", minimum: 1
   end
 end

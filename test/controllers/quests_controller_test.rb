@@ -28,8 +28,9 @@ class QuestsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_select "h1", "Detail"
-    assert_select "td", text: "Do the thing"
-    assert_select "#executions, table tr[id^=quest_execution_]", minimum: 1
+    assert_select ".chat-thread .chat-bubble--user", text: "Do the thing"
+    assert_select "[id^=quest_execution_] details.chat-logs", minimum: 1
+    assert_select ".chat-thread .chat-bubble--agent", minimum: 1
   end
 
   test "show does not accept the internal id" do
