@@ -11,6 +11,7 @@ module Omochi
       CONTAINER_AGENT_PATH = "/opt/omochi/agent_runner".freeze
       CONTAINER_AGENT_INSTRUCTIONS_PATH = "/opt/omochi/AGENTS.md".freeze
       CONTAINER_WORKSPACE_PATH = "/workspace".freeze
+      CONTAINER_BUNDLE_CACHE_PATH = "/tmp/bundle".freeze
 
       def initialize(docker_bin: "docker", capture3: Open3.method(:capture3))
         @docker_bin = docker_bin
@@ -18,9 +19,9 @@ module Omochi
       end
 
       # Creates an isolated Agent Container and returns its container ID.
-      def create_container(name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, agent_instructions_path: nil, command: nil, network: "none", env: {})
+      def create_container(name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, agent_instructions_path: nil, bundle_cache_path: nil, command: nil, network: "none", env: {})
         args = build_create_args(
-          name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, agent_instructions_path:, command:, network:, env:
+          name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, agent_instructions_path:, bundle_cache_path:, command:, network:, env:
         )
 
         stdout, stderr, status = @capture3.call(*args, unsetenv_others: false)
@@ -34,7 +35,7 @@ module Omochi
         raise Error, "docker CLI not found: #{e.message}"
       end
 
-      def build_create_args(name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, agent_instructions_path: nil, command: nil, network: "none", env: {})
+      def build_create_args(name:, image:, workspace_path:, agent_script_path:, memory:, cpus:, pids_limit:, agent_instructions_path: nil, bundle_cache_path: nil, command: nil, network: "none", env: {})
         cmd = command.presence || [ "ruby", CONTAINER_AGENT_PATH ]
         args = [
           @docker_bin, "create",
@@ -55,6 +56,9 @@ module Omochi
         ]
         if agent_instructions_path.present?
           args.push("--volume", "#{agent_instructions_path}:#{CONTAINER_AGENT_INSTRUCTIONS_PATH}:ro")
+        end
+        if bundle_cache_path.present?
+          args.push("--volume", "#{bundle_cache_path}:#{CONTAINER_BUNDLE_CACHE_PATH}:rw")
         end
 
         merged_env = { "HOME" => "/home/agent" }.merge(env)

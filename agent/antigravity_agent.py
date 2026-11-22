@@ -286,6 +286,7 @@ def load_markdown_file(path: str, max_chars: int = 24000) -> str | None:
 def build_system_instructions(
     workspace_dir: str,
     agent_instructions_file: str = AGENT_INSTRUCTIONS_FILE,
+    include_repo_instructions: bool = True,
 ) -> tuple[str, list[str]]:
     base_instructions = (
         "You are omochi, an autonomous AI coding assistant running inside an isolated workspace (/workspace). "
@@ -312,16 +313,17 @@ def build_system_instructions(
             f"{agent_md}"
         )
 
-    repo_agents_path = os.path.join(workspace_dir, "AGENTS.md")
-    repo_md = load_markdown_file(repo_agents_path)
-    if repo_md:
-        loaded_sources.append(repo_agents_path)
-        sections.append(
-            f"Repository Instructions (loaded from {repo_agents_path}):\n"
-            "Follow the repository-specific conventions and architectural rules below unless they conflict "
-            "with the core execution rules above (such as never running `git push` or bypassing container boundaries):\n\n"
-            f"{repo_md}"
-        )
+    if include_repo_instructions:
+        repo_agents_path = os.path.join(workspace_dir, "AGENTS.md")
+        repo_md = load_markdown_file(repo_agents_path)
+        if repo_md:
+            loaded_sources.append(repo_agents_path)
+            sections.append(
+                f"Repository Instructions (loaded from {repo_agents_path}):\n"
+                "Follow the repository-specific conventions and architectural rules below unless they conflict "
+                "with the core execution rules above (such as never running `git push` or bypassing container boundaries):\n\n"
+                f"{repo_md}"
+            )
 
     return "\n\n".join(sections), loaded_sources
 
@@ -391,6 +393,29 @@ def build_routing_instructions(base_system_instructions: str, smart_model: str) 
     return f"{base_system_instructions}\n\n{routing_block}"
 
 
+def extract_usage_summary(response) -> str | None:
+    """Best-effort extraction of token usage metadata from ChatResponse."""
+    usage = getattr(response, "usage_metadata", None) or getattr(response, "usage", None)
+    if usage is None:
+        return None
+    if isinstance(usage, dict):
+        in_tok = usage.get("prompt_token_count") or usage.get("input_tokens")
+        out_tok = usage.get("candidates_token_count") or usage.get("output_tokens")
+        total_tok = usage.get("total_token_count") or usage.get("total_tokens")
+    else:
+        in_tok = getattr(usage, "prompt_token_count", None) or getattr(usage, "input_tokens", None)
+        out_tok = getattr(usage, "candidates_token_count", None) or getattr(usage, "output_tokens", None)
+        total_tok = getattr(usage, "total_token_count", None) or getattr(usage, "total_tokens", None)
+    parts = []
+    if in_tok is not None:
+        parts.append(f"input={in_tok}")
+    if out_tok is not None:
+        parts.append(f"output={out_tok}")
+    if total_tok is not None:
+        parts.append(f"total={total_tok}")
+    return ", ".join(parts) if parts else None
+
+
 async def run_chat_with_fallback(
     agent_cls,
     models: list[str],
@@ -421,6 +446,9 @@ async def run_chat_with_fallback(
                     total_timeout=240.0,
                     emit_interim=emit_interim,
                 )
+                usage_str = extract_usage_summary(response)
+                if usage_str:
+                    emit("progress", message=f"Token usage ({current_model}): {usage_str}")
                 return summary, current_model
         except Exception as e:
             err_str = str(e)
@@ -532,12 +560,13 @@ async def main():
             head_sha = git_context.get("head_sha", "")
             diff_file = os.path.join(WORKSPACE_DIR, git_context.get("diff_file", ".omochi_pr.diff"))
             diff_excerpt = ""
+            diff_limit = 4000 if (history and "/review" not in body.lower()) else 12000
             if os.path.exists(diff_file):
                 try:
                     with open(diff_file, "r", encoding="utf-8", errors="replace") as df:
                         raw_diff = df.read()
-                    if len(raw_diff) > 40000:
-                        diff_excerpt = raw_diff[:40000] + "\n... (diff truncated in prompt; full diff is in /workspace/.omochi_pr.diff)"
+                    if len(raw_diff) > diff_limit:
+                        diff_excerpt = raw_diff[:diff_limit] + "\n... (diff truncated in prompt; full diff is in /workspace/.omochi_pr.diff)"
                     else:
                         diff_excerpt = raw_diff
                 except Exception:
@@ -622,15 +651,16 @@ async def main():
     try:
         from google.antigravity import Agent
 
-        system_instructions, loaded_sources = build_system_instructions(WORKSPACE_DIR)
-        if loaded_sources:
-            emit("progress", message=f"Loaded instructions from {', '.join(loaded_sources)}.")
-        system_instructions = f"{system_instructions}\n\n{build_memory_instructions()}"
-
         primary_model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"
         smart_model = os.environ.get("GEMINI_SMART_MODEL", "").strip()
         is_pr_context = bool(git_context and git_context.get("mode") == "pull_request")
         routing_enabled = bool(smart_model and smart_model != primary_model)
+
+        memory_suffix = build_memory_instructions()
+        fast_base, fast_sources = build_system_instructions(WORKSPACE_DIR, include_repo_instructions=False)
+        fast_system_instructions = f"{fast_base}\n\n{memory_suffix}"
+        full_base, full_sources = build_system_instructions(WORKSPACE_DIR, include_repo_instructions=True)
+        full_system_instructions = f"{full_base}\n\n{memory_suffix}"
 
         step_error_handler = StepErrorHandler()
         logging.getLogger().addHandler(step_error_handler)
@@ -641,18 +671,22 @@ async def main():
         heartbeat_task = asyncio.create_task(heartbeat_worker(15.0))
         try:
             if routing_enabled and is_pr_context:
+                if full_sources:
+                    emit("progress", message=f"Loaded instructions from {', '.join(full_sources)}.")
                 emit("progress", message=f"Pull Request context detected; starting directly with {smart_model}.")
                 smart_models = list(dict.fromkeys([smart_model, "gemini-3.5-flash", primary_model]))
                 summary, _ = await run_chat_with_fallback(
-                    Agent, smart_models, system_instructions, prompt, attachments, sequence, step_error_handler, loop
+                    Agent, smart_models, full_system_instructions, prompt, attachments, sequence, step_error_handler, loop
                 )
             elif routing_enabled:
+                if fast_sources:
+                    emit("progress", message=f"Loaded instructions from {', '.join(fast_sources)}.")
                 emit(
                     "progress",
                     message=f"Starting in fast mode ({primary_model}); smart model ({smart_model}) available for escalation.",
                 )
                 fast_models = list(dict.fromkeys([primary_model, smart_model, "gemini-3.5-flash"]))
-                fast_instructions = build_routing_instructions(system_instructions, smart_model)
+                fast_instructions = build_routing_instructions(fast_system_instructions, smart_model)
                 summary, used_model = await run_chat_with_fallback(
                     Agent, fast_models, fast_instructions, prompt, attachments, sequence, step_error_handler, loop
                 )
@@ -663,13 +697,15 @@ async def main():
                     handoff_prompt = f"{prompt}\n\n[Model Handoff Note from {used_model}]: {reason_note}"
                     smart_models = list(dict.fromkeys([smart_model, "gemini-3.5-flash", primary_model]))
                     summary, _ = await run_chat_with_fallback(
-                        Agent, smart_models, system_instructions, handoff_prompt, attachments, sequence, step_error_handler, loop
+                        Agent, smart_models, full_system_instructions, handoff_prompt, attachments, sequence, step_error_handler, loop
                     )
             else:
+                if full_sources:
+                    emit("progress", message=f"Loaded instructions from {', '.join(full_sources)}.")
                 fallback_models = list(dict.fromkeys([primary_model, "gemini-3.5-flash", "gemini-3.1-flash-lite"]))
                 emit("progress", message=f"Antigravity Agent initialized with workspace capabilities (model: {fallback_models[0]}).")
                 summary, _ = await run_chat_with_fallback(
-                    Agent, fallback_models, system_instructions, prompt, attachments, sequence, step_error_handler, loop
+                    Agent, fallback_models, full_system_instructions, prompt, attachments, sequence, step_error_handler, loop
                 )
         finally:
             heartbeat_task.cancel()

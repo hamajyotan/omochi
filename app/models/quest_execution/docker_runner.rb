@@ -19,6 +19,10 @@ class QuestExecution::DockerRunner
   HEARTBEAT_INTERVAL_SECONDS = 5.0
   INSTRUCTION_FILENAME = ".omochi_instruction.json".freeze
   ATTACHMENTS_DIRNAME = ".omochi_attachments".freeze
+  BUNDLE_CACHE_DIRNAME = "_bundle_cache".freeze
+  HISTORY_LIMIT = 6
+  HISTORY_BODY_MAX_CHARS = 800
+  HISTORY_RESULT_MAX_CHARS = 1_000
 
   class_attribute :docker_client_factory, default: -> { Omochi::Docker::CliClient.new }
 
@@ -101,16 +105,19 @@ class QuestExecution::DockerRunner
 
       prior_history = quest.instructions
         .where("sequence < ?", instruction.sequence)
-        .in_queue_order
+        .reorder(sequence: :desc)
+        .limit(HISTORY_LIMIT)
         .includes(:executions)
+        .to_a
+        .reverse
         .map do |inst|
           succeeded_exec = inst.executions.select(&:succeeded?).last
           {
             sequence: inst.sequence,
             source_platform: inst.source_platform,
             speaker: inst.actor_identifier,
-            body: inst.body,
-            result_summary: succeeded_exec&.result_summary
+            body: inst.body.to_s.truncate(HISTORY_BODY_MAX_CHARS),
+            result_summary: succeeded_exec&.result_summary&.to_s&.truncate(HISTORY_RESULT_MAX_CHARS)
           }.compact
         end
 
@@ -168,12 +175,16 @@ class QuestExecution::DockerRunner
         env["GEMINI_SMART_MODEL"] = gemini_smart_model
       end
 
+      bundle_cache_dir = Rails.root.join(docker_setting(:workspaces_dir).to_s, BUNDLE_CACHE_DIRNAME)
+      FileUtils.mkdir_p(bundle_cache_dir)
+
       @docker_client.create_container(
         name: container_name,
         image: docker_setting(:image),
         workspace_path: workspace_path.to_s,
         agent_script_path: agent_script_path,
         agent_instructions_path: agent_instructions_path,
+        bundle_cache_path: bundle_cache_dir.to_s,
         command: command,
         network: docker_setting_optional(:network) || "none",
         memory: docker_setting(:memory),

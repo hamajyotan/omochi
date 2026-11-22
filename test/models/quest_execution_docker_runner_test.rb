@@ -264,4 +264,37 @@ class QuestExecutionDockerRunnerTest < ActiveSupport::TestCase
     assert_includes final_job["arguments"][1], "修正が完了しましたにゃ！"
     assert_equal "1700000005.0001", final_job["arguments"][2]["remove_reaction_ts"]
   end
+
+  test "limits history to recent turns, truncates long entries, and mounts bundle cache" do
+    first = Quest.start!(title: "Long thread", body: "msg 1", source_platform: "dashboard", enqueue: false)
+    quest = first.quest
+    exec1 = quest.claim_next_instruction!
+    QuestExecution::DockerRunner.new(docker_client: @fake_docker_client).run(exec1)
+
+    7.times do |i|
+      quest.receive_instruction!(body: "msg #{i + 2} " + ("x" * 900), source_platform: "dashboard", enqueue: false)
+      ex = quest.claim_next_instruction!
+      QuestExecution::DockerRunner.new(docker_client: @fake_docker_client).run(ex)
+    end
+
+    quest.receive_instruction!(body: "latest question", source_platform: "dashboard", enqueue: false)
+    latest_exec = quest.claim_next_instruction!
+
+    captured_instruction = nil
+    @fake_docker_client.on_run = ->(_cid, **_opts, &block) do
+      ws = @fake_docker_client.created_containers.last[:workspace_path]
+      captured_instruction = JSON.parse(File.read(File.join(ws, ".omochi_instruction.json")))
+      block.call(%({"type":"started","message":"hi"}\n), "stdout")
+      block.call(%({"type":"completed","summary":"ok"}\n), "stdout")
+      0
+    end
+
+    QuestExecution::DockerRunner.new(docker_client: @fake_docker_client).run(latest_exec)
+
+    history = captured_instruction["history"]
+    assert_equal QuestExecution::DockerRunner::HISTORY_LIMIT, history.size
+    assert_equal 3, history.first["sequence"]
+    assert history.first["body"].length <= QuestExecution::DockerRunner::HISTORY_BODY_MAX_CHARS
+    assert_includes @fake_docker_client.created_containers.last[:bundle_cache_path], "_bundle_cache"
+  end
 end
