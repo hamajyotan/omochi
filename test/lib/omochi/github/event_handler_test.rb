@@ -267,4 +267,30 @@ class Omochi::GitHub::EventHandlerTest < ActiveSupport::TestCase
       Rails.configuration.omochi[:github][:repositories] = orig_repos
     end
   end
+
+  test "accepts PR issue_comment without slash command when PR has omochi label" do
+    comment_payload = {
+      "action" => "created",
+      "issue" => {
+        "number" => 77,
+        "title" => "Labeled PR",
+        "html_url" => "https://github.com/hamajyotan/omochi/pull/77",
+        "pull_request" => {},
+        "labels" => [ { "name" => "omochi" } ]
+      },
+      "comment" => {
+        "body" => "ここを直してください",
+        "user" => { "login" => "dev_user", "type" => "User" }
+      },
+      "repository" => {
+        "full_name" => "hamajyotan/omochi"
+      }
+    }
+
+    result = @handler.handle(event_type: "issue_comment", delivery_id: "deliv_labeled_pr", payload: comment_payload)
+
+    assert_equal :accepted, result.status
+    assert result.created_quest
+    assert_includes result.instruction.body, "ここを直してください"
+  end
 end

@@ -260,6 +260,8 @@ class Omochi::GitHub::WorkspaceSyncerTest < ActiveSupport::TestCase
     assert_equal 101, result["pull_number"]
     assert_equal "https://github.com/hamajyotan/omochi/pull/101", result["url"]
     assert_equal "omochi/#{quest.public_id}-2", result["branch"]
+    assert_equal [ "omochi" ], @fake_app_client.added_labels.last[:labels]
+    assert_equal 101, @fake_app_client.added_labels.last[:issue_number]
   end
 
   private

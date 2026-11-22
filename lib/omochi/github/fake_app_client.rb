@@ -2,7 +2,7 @@
 module Omochi
   module GitHub
     class FakeAppClient
-      attr_reader :reviews, :comments, :created_pull_requests, :merged_pull_requests, :tokens_requested
+      attr_reader :reviews, :comments, :created_pull_requests, :merged_pull_requests, :added_labels, :tokens_requested
       attr_accessor :on_create_review, :on_create_comment, :on_create_pull_request, :on_merge_pull_request, :repositories, :pull_requests, :pull_request_diffs
 
       def initialize
@@ -10,6 +10,7 @@ module Omochi
         @comments = []
         @created_pull_requests = []
         @merged_pull_requests = []
+        @added_labels = []
         @tokens_requested = []
         @repositories = {}
         @pull_requests = {}
@@ -119,6 +120,17 @@ module Omochi
           "merged" => true,
           "message" => "Pull Request successfully merged"
         }
+      end
+
+      def add_labels(installation_id:, repository:, issue_number:, labels:)
+        record = {
+          installation_id: installation_id,
+          repository: repository.to_s,
+          issue_number: issue_number.to_i,
+          labels: Array(labels).map(&:to_s)
+        }
+        @added_labels << record
+        record[:labels].map { |name| { "name" => name } }
       end
     end
   end

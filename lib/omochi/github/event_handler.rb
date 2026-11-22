@@ -90,6 +90,13 @@ module Omochi
           text.match?(SLASH_COMMAND_PATTERN)
         end
 
+        def has_omochi_label?(issue)
+          labels = issue["labels"]
+          return false unless labels.is_a?(Array)
+
+          labels.any? { |label| label.is_a?(Hash) && label["name"].to_s.casecmp?("omochi") }
+        end
+
         def process_pr_review_request(delivery_id, pr, repo)
           existing = QuestInstruction.find_duplicate(source_platform: "github", source_event_id: delivery_id)
           return Result.new(status: :duplicate, instruction: existing, created_quest: false, duplicate: true) if existing
@@ -166,7 +173,7 @@ module Omochi
           issue = payload["issue"]
           repo = payload["repository"]
           return ignored unless comment.is_a?(Hash) && issue.is_a?(Hash) && repo.is_a?(Hash)
-          return ignored if comment.dig("user", "type") == "Bot"
+          return ignored if comment.dig("user", "type") == "Bot" || comment.dig("user", "login").to_s.end_with?("[bot]")
 
           scope_key = repo["full_name"].to_s
           issue_number = issue["number"].to_s
@@ -180,7 +187,7 @@ module Omochi
           )
           body = comment["body"].to_s.strip
           return ignored if body.empty?
-          return ignored unless has_slash_command?(body)
+          return ignored unless has_slash_command?(body) || (resource_type == "pull_request" && has_omochi_label?(issue))
 
           if resource
             instruction = resource.quest.receive_instruction!(

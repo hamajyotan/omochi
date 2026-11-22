@@ -139,6 +139,16 @@ module Omochi
         )
       end
 
+      # Adds labels to an Issue or Pull Request.
+      def add_labels(installation_id:, repository:, issue_number:, labels:)
+        token = installation_token(installation_id)
+        post_json(
+          "repos/#{repository}/issues/#{issue_number}/labels",
+          bearer_token: token,
+          payload: { labels: Array(labels).map(&:to_s) }
+        )
+      end
+
       # Fetches Pull Request metadata (title, body, base/head refs and SHAs).
       def fetch_pull_request(installation_id:, repository:, pull_number:)
         token = installation_token(installation_id)

@@ -133,6 +133,17 @@ module Omochi
           pr_number = pr_data["number"].to_s
           pr_url = pr_data["html_url"].to_s.presence || "https://github.com/#{repository}/pull/#{pr_number}"
 
+          begin
+            client.add_labels(
+              installation_id: installation_id,
+              repository: repository,
+              issue_number: pr_number,
+              labels: [ "omochi" ]
+            )
+          rescue StandardError => e
+            Rails.error.report(e, context: { execution_id: execution.id, pull_number: pr_number })
+          end
+
           execution.quest.external_resources.find_or_create_by!(
             platform: "github",
             resource_type: "pull_request",
