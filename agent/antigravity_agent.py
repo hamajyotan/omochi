@@ -180,10 +180,10 @@ async def resolve_response_text(
                     current_turn_parts.clear()
                     if emit_interim and turn_text:
                         cleaned_turn, _ = extract_memory_updates(turn_text)
-                        escalated, _ = parse_escalation_signal(cleaned_turn)
+                        esc_target, _ = parse_escalation_signal(cleaned_turn)
                         now = loop.time()
                         cooldown_ok = last_interim_at is None or (now - last_interim_at) >= interim_cooldown
-                        if not escalated and len(cleaned_turn) >= min_interim_chars and cooldown_ok:
+                        if not esc_target and len(cleaned_turn) >= min_interim_chars and cooldown_ok:
                             emit("interim", message=cleaned_turn)
                             last_interim_at = now
                     tool_name = getattr(chunk, "name", "tool")
@@ -368,27 +368,44 @@ def build_memory_instructions() -> str:
     )
 
 
-ESCALATION_PATTERN = re.compile(r"\[\[ESCALATE_MODEL(?:\s*:\s*(.+?))?\]\]", re.DOTALL)
+ESCALATION_PATTERN = re.compile(r"\[\[ESCALATE_(READ|CODE|MODEL)(?:\s*:\s*(.+?))?\]\]", re.DOTALL)
 
 
-def parse_escalation_signal(text: str) -> tuple[bool, str]:
-    """Detects an escalation signal emitted by the fast model."""
+def parse_escalation_signal(text: str) -> tuple[str | None, str]:
+    """Detects a Stage 2 (read) or Stage 3 (code) escalation signal emitted by the model."""
     match = ESCALATION_PATTERN.search(text or "")
     if not match:
-        return False, ""
-    reason = (match.group(1) or "").strip()
-    return True, reason
+        return None, ""
+    kind = match.group(1).upper()
+    target = "read" if kind == "READ" else "code"
+    reason = (match.group(2) or "").strip()
+    return target, reason
 
 
-def build_routing_instructions(base_system_instructions: str, smart_model: str) -> str:
+def build_routing_instructions(base_system_instructions: str, read_model: str, smart_model: str) -> str:
     routing_block = (
-        f"Model Routing (Fast Mode -> {smart_model}):\n"
-        "You are currently running in fast response mode.\n"
-        "- For simple questions, casual conversation, brief clarifications, or lightweight read-only checks you can answer immediately, respond directly to the user.\n"
-        "- However, if the request or conversation requires modifying/creating files, implementing features, fixing bugs, running tests/commands, "
+        f"Model Routing (Stage 1: Fast Conversation -> Stage 2: {read_model} [Read/URL] / Stage 3: {smart_model} [Coding]):\n"
+        "You are currently running in Stage 1 (fast conversation mode, NO tools available).\n"
+        "- For simple questions, casual conversation, or brief clarifications that do NOT need external URLs or workspace files, respond directly to the user.\n"
+        "- If the user asks you to read/summarize an external web URL, search the web, or inspect a file without editing/testing:\n"
+        "  Immediately output ONLY the following single-line signal and stop:\n"
+        "  [[ESCALATE_READ: <concise reason and what URL/file to read>]]\n"
+        "- If the request or conversation requires modifying/creating files, implementing features, fixing bugs, running tests/commands, "
         "deep multi-file code investigation, or complex reasoning/design:\n"
-        "  Do NOT edit files or run implementation commands yourself. Instead, immediately output ONLY the following single-line signal and stop:\n"
-        "  [[ESCALATE_MODEL: <concise reason and handoff notes>]]"
+        "  Immediately output ONLY the following single-line signal and stop:\n"
+        "  [[ESCALATE_CODE: <concise reason and handoff notes>]]"
+    )
+    return f"{base_system_instructions}\n\n{routing_block}"
+
+
+def build_read_routing_instructions(base_system_instructions: str, smart_model: str) -> str:
+    routing_block = (
+        f"Model Routing (Stage 2: Read-Only Tools -> Stage 3: {smart_model} [Coding]):\n"
+        "You have read-only tools (web/URL reading and file viewing) available.\n"
+        "- If the task can be completed by reading URLs or viewing files, complete it and respond directly.\n"
+        "- If you discover that modifying files, running tests/commands, or deep multi-file engineering is required:\n"
+        "  Immediately output ONLY the following single-line signal and stop:\n"
+        "  [[ESCALATE_CODE: <concise reason and handoff notes>]]"
     )
     return f"{base_system_instructions}\n\n{routing_block}"
 
@@ -426,12 +443,12 @@ async def run_chat_with_fallback(
     step_error_handler: StepErrorHandler,
     loop: asyncio.AbstractEventLoop,
     emit_interim: bool = True,
-    enable_tools: bool = True,
+    tool_mode: str = "full",
 ) -> tuple[str, str]:
     max_attempts = len(models)
     for idx, current_model in enumerate(models, start=1):
         step_error_handler.reset(loop)
-        config = build_agent_config(current_model, system_instructions, enable_tools=enable_tools)
+        config = build_agent_config(current_model, system_instructions, tool_mode=tool_mode)
         try:
             async with agent_cls(config) as agent:
                 emit(
@@ -478,8 +495,60 @@ async def run_chat_with_fallback(
     raise RuntimeError("No models available to execute.")
 
 
-def build_capabilities_config(capabilities_cls, enable_tools: bool = True):
-    if enable_tools:
+def _resolve_read_only_tools() -> list | None:
+    builtin_tools = None
+    for mod_path in ("google.antigravity.types", "google.antigravity"):
+        try:
+            mod = __import__(mod_path, fromlist=["BuiltinTools"])
+            builtin_tools = getattr(mod, "BuiltinTools", None)
+            if builtin_tools is not None:
+                break
+        except Exception:
+            continue
+    if builtin_tools is None:
+        return None
+
+    tools: list = []
+    if hasattr(builtin_tools, "read_only") and callable(builtin_tools.read_only):
+        try:
+            tools.extend(list(builtin_tools.read_only()))
+        except Exception:
+            pass
+
+    for attr_name in (
+        "READ_URL_CONTENT",
+        "SEARCH_WEB",
+        "WEB_SEARCH",
+        "FETCH_URL",
+        "VIEW_FILE",
+        "FIND_BY_NAME",
+        "GREP_SEARCH",
+        "LIST_DIR",
+    ):
+        if hasattr(builtin_tools, attr_name):
+            val = getattr(builtin_tools, attr_name)
+            if val not in tools:
+                tools.append(val)
+
+    return tools or None
+
+
+def build_capabilities_config(capabilities_cls, tool_mode: str = "full"):
+    if tool_mode == "full":
+        return capabilities_cls()
+
+    if tool_mode == "read_only":
+        read_tools = _resolve_read_only_tools()
+        if not read_tools:
+            return capabilities_cls()
+        for kwargs in (
+            {"enabled_tools": read_tools, "enable_subagents": False},
+            {"enabled_tools": read_tools},
+        ):
+            try:
+                return capabilities_cls(**kwargs)
+            except (TypeError, Exception):
+                continue
         return capabilities_cls()
 
     for kwargs in (
@@ -493,12 +562,12 @@ def build_capabilities_config(capabilities_cls, enable_tools: bool = True):
     return capabilities_cls()
 
 
-def build_agent_config(model_name: str, system_instructions: str, enable_tools: bool = True):
+def build_agent_config(model_name: str, system_instructions: str, tool_mode: str = "full"):
     from google.antigravity import CapabilitiesConfig, LocalAgentConfig
 
-    capabilities = build_capabilities_config(CapabilitiesConfig, enable_tools=enable_tools)
+    capabilities = build_capabilities_config(CapabilitiesConfig, tool_mode=tool_mode)
     policies = []
-    if enable_tools:
+    if tool_mode != "none":
         try:
             from google.antigravity.hooks.policy import allow_all
             policies.append(allow_all())
@@ -670,6 +739,7 @@ async def main():
         from google.antigravity import Agent
 
         primary_model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"
+        read_model = os.environ.get("GEMINI_READ_MODEL", "").strip() or primary_model
         smart_model = os.environ.get("GEMINI_SMART_MODEL", "").strip()
         is_pr_context = bool(git_context and git_context.get("mode") == "pull_request")
         routing_enabled = bool(smart_model and smart_model != primary_model)
@@ -691,31 +761,43 @@ async def main():
             if routing_enabled and is_pr_context:
                 if full_sources:
                     emit("progress", message=f"Loaded instructions from {', '.join(full_sources)}.")
-                emit("progress", message=f"Pull Request context detected; starting directly with {smart_model}.")
+                emit("progress", message=f"Pull Request context detected; starting directly at Stage 3 ({smart_model}, tools=full).")
                 smart_models = list(dict.fromkeys([smart_model, "gemini-3.5-flash", primary_model]))
                 summary, _ = await run_chat_with_fallback(
-                    Agent, smart_models, full_system_instructions, prompt, attachments, sequence, step_error_handler, loop
+                    Agent, smart_models, full_system_instructions, prompt, attachments, sequence, step_error_handler, loop, tool_mode="full"
                 )
             elif routing_enabled:
                 if fast_sources:
                     emit("progress", message=f"Loaded instructions from {', '.join(fast_sources)}.")
                 emit(
                     "progress",
-                    message=f"Starting in fast mode ({primary_model}, tools=disabled); smart model ({smart_model}) available for escalation.",
+                    message=f"Starting at Stage 1 ({primary_model}, tools=none); Stage 2 ({read_model}) and Stage 3 ({smart_model}) available.",
                 )
                 fast_models = list(dict.fromkeys([primary_model, smart_model, "gemini-3.5-flash"]))
-                fast_instructions = build_routing_instructions(fast_system_instructions, smart_model)
+                fast_instructions = build_routing_instructions(fast_system_instructions, read_model, smart_model)
                 summary, used_model = await run_chat_with_fallback(
-                    Agent, fast_models, fast_instructions, prompt, attachments, sequence, step_error_handler, loop, enable_tools=False
+                    Agent, fast_models, fast_instructions, prompt, attachments, sequence, step_error_handler, loop, tool_mode="none"
                 )
-                escalated, reason = parse_escalation_signal(summary)
-                if escalated:
+                stage_target, reason = parse_escalation_signal(summary)
+
+                if stage_target == "read":
+                    reason_note = reason or "URL fetching or read-only file inspection required."
+                    emit("progress", message=f"Escalating from Stage 1 ({used_model}) to Stage 2 ({read_model}, tools=read_only): {reason_note}")
+                    handoff_prompt = f"{prompt}\n\n[Stage 1 Handoff Note from {used_model}]: {reason_note}"
+                    read_models = list(dict.fromkeys([read_model, smart_model, "gemini-3.5-flash"]))
+                    read_instructions = build_read_routing_instructions(fast_system_instructions, smart_model)
+                    summary, used_model = await run_chat_with_fallback(
+                        Agent, read_models, read_instructions, handoff_prompt, attachments, sequence, step_error_handler, loop, tool_mode="read_only"
+                    )
+                    stage_target, reason = parse_escalation_signal(summary)
+
+                if stage_target == "code":
                     reason_note = reason or "Coding or complex reasoning required."
-                    emit("progress", message=f"Escalating from {used_model} to {smart_model}: {reason_note}")
+                    emit("progress", message=f"Escalating from {used_model} to Stage 3 ({smart_model}, tools=full): {reason_note}")
                     handoff_prompt = f"{prompt}\n\n[Model Handoff Note from {used_model}]: {reason_note}"
                     smart_models = list(dict.fromkeys([smart_model, "gemini-3.5-flash", primary_model]))
                     summary, _ = await run_chat_with_fallback(
-                        Agent, smart_models, full_system_instructions, handoff_prompt, attachments, sequence, step_error_handler, loop
+                        Agent, smart_models, full_system_instructions, handoff_prompt, attachments, sequence, step_error_handler, loop, tool_mode="full"
                     )
             else:
                 if full_sources:
@@ -723,7 +805,7 @@ async def main():
                 fallback_models = list(dict.fromkeys([primary_model, "gemini-3.5-flash", "gemini-3.1-flash-lite"]))
                 emit("progress", message=f"Antigravity Agent initialized with workspace capabilities (model: {fallback_models[0]}).")
                 summary, _ = await run_chat_with_fallback(
-                    Agent, fallback_models, full_system_instructions, prompt, attachments, sequence, step_error_handler, loop
+                    Agent, fallback_models, full_system_instructions, prompt, attachments, sequence, step_error_handler, loop, tool_mode="full"
                 )
         finally:
             heartbeat_task.cancel()

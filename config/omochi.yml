@@ -25,6 +25,7 @@ shared:
     network: <%= ENV.fetch("OMOCHI_DOCKER_NETWORK", "none") %>
     gemini_api_key: <%= ENV["GEMINI_API_KEY"] %>
     gemini_model: <%= ENV["GEMINI_MODEL"] %>
+    gemini_read_model: <%= ENV["GEMINI_READ_MODEL"] %>
     gemini_smart_model: <%= ENV["GEMINI_SMART_MODEL"] %>
     memory: <%= ENV.fetch("OMOCHI_AGENT_MEMORY", "512m") %>
     cpus: <%= ENV.fetch("OMOCHI_AGENT_CPUS", "1.0") %>
