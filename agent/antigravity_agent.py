@@ -426,11 +426,12 @@ async def run_chat_with_fallback(
     step_error_handler: StepErrorHandler,
     loop: asyncio.AbstractEventLoop,
     emit_interim: bool = True,
+    enable_tools: bool = True,
 ) -> tuple[str, str]:
     max_attempts = len(models)
     for idx, current_model in enumerate(models, start=1):
         step_error_handler.reset(loop)
-        config = build_agent_config(current_model, system_instructions)
+        config = build_agent_config(current_model, system_instructions, enable_tools=enable_tools)
         try:
             async with agent_cls(config) as agent:
                 emit(
@@ -477,25 +478,42 @@ async def run_chat_with_fallback(
     raise RuntimeError("No models available to execute.")
 
 
-def build_agent_config(model_name: str, system_instructions: str):
+def build_capabilities_config(capabilities_cls, enable_tools: bool = True):
+    if enable_tools:
+        return capabilities_cls()
+
+    for kwargs in (
+        {"enabled_tools": [], "enable_subagents": False},
+        {"enabled_tools": []},
+    ):
+        try:
+            return capabilities_cls(**kwargs)
+        except (TypeError, Exception):
+            continue
+    return capabilities_cls()
+
+
+def build_agent_config(model_name: str, system_instructions: str, enable_tools: bool = True):
     from google.antigravity import CapabilitiesConfig, LocalAgentConfig
 
+    capabilities = build_capabilities_config(CapabilitiesConfig, enable_tools=enable_tools)
     policies = []
-    try:
-        from google.antigravity.hooks.policy import allow_all
-        policies.append(allow_all())
-    except Exception:
+    if enable_tools:
         try:
-            from google.antigravity.hooks.policy import allow
-            policies.append(allow("*"))
+            from google.antigravity.hooks.policy import allow_all
+            policies.append(allow_all())
         except Exception:
-            pass
+            try:
+                from google.antigravity.hooks.policy import allow
+                policies.append(allow("*"))
+            except Exception:
+                pass
 
     config_candidates = [
         {
             "model": model_name,
             "system_instructions": system_instructions,
-            "capabilities": CapabilitiesConfig(),
+            "capabilities": capabilities,
             "workspaces": [WORKSPACE_DIR],
             "app_data_dir": APP_DATA_DIR,
             "policies": policies,
@@ -503,19 +521,19 @@ def build_agent_config(model_name: str, system_instructions: str):
         {
             "model": model_name,
             "system_instructions": system_instructions,
-            "capabilities": CapabilitiesConfig(),
+            "capabilities": capabilities,
             "app_data_dir": APP_DATA_DIR,
             "policies": policies,
         },
         {
             "system_instructions": system_instructions,
-            "capabilities": CapabilitiesConfig(),
+            "capabilities": capabilities,
             "app_data_dir": APP_DATA_DIR,
             "policies": policies,
         },
         {
             "system_instructions": system_instructions,
-            "capabilities": CapabilitiesConfig(),
+            "capabilities": capabilities,
             "app_data_dir": APP_DATA_DIR,
         },
         {"system_instructions": system_instructions},
@@ -683,12 +701,12 @@ async def main():
                     emit("progress", message=f"Loaded instructions from {', '.join(fast_sources)}.")
                 emit(
                     "progress",
-                    message=f"Starting in fast mode ({primary_model}); smart model ({smart_model}) available for escalation.",
+                    message=f"Starting in fast mode ({primary_model}, tools=disabled); smart model ({smart_model}) available for escalation.",
                 )
                 fast_models = list(dict.fromkeys([primary_model, smart_model, "gemini-3.5-flash"]))
                 fast_instructions = build_routing_instructions(fast_system_instructions, smart_model)
                 summary, used_model = await run_chat_with_fallback(
-                    Agent, fast_models, fast_instructions, prompt, attachments, sequence, step_error_handler, loop
+                    Agent, fast_models, fast_instructions, prompt, attachments, sequence, step_error_handler, loop, enable_tools=False
                 )
                 escalated, reason = parse_escalation_signal(summary)
                 if escalated:
