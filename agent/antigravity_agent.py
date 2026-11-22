@@ -502,8 +502,11 @@ async def main():
                     pass
             context_block = (
                 f"Workspace Context:\n"
-                f"- Repository `{repo}` is checked out in `/workspace` at PR #{pr_num}: {pr_title} (`{base_ref}` <- `{head_ref}`, SHA `{head_sha}`).\n"
-                f"- The complete unified diff for this Pull Request is provided below. Review the provided diff directly and only read additional files in `/workspace` if strictly necessary to verify a change."
+                f"- Repository `{repo}` is checked out in `/workspace` on the branch for PR #{pr_num}: {pr_title} (`{base_ref}` <- `{head_ref}`, SHA `{head_sha}`).\n"
+                f"- If the user asks for code changes, fixes, or additional edits to this PR: edit the files in `/workspace`, run relevant checks if applicable, "
+                f"and create local git commit(s) (`git add ... && git commit -m '...'`); the host will automatically push new commit(s) to `{head_ref}` and update PR #{pr_num}.\n"
+                f"- If the user asks only for a review (`/review`) or an explanation/investigation: review the Pull Request diff below directly "
+                f"(and read additional files in `/workspace` if needed) without creating any git commits."
             )
             if diff_excerpt:
                 context_block += f"\n\nPull Request Unified Diff:\n```diff\n{diff_excerpt}\n```"
