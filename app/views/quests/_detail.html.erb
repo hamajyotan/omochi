@@ -37,12 +37,18 @@
     <% end %>
   </section>
 
-  <section class="quest-conversation">
-    <h2>💬 Conversation</h2>
+  <section class="quest-conversation" data-controller="log-toggle">
+    <div class="quest-conversation__header">
+      <h2>💬 Conversation</h2>
+      <label class="chat-logs-toggle">
+        <input type="checkbox" data-log-toggle-target="checkbox" data-action="change->log-toggle#toggle">
+        <span>ログ表示</span>
+      </label>
+    </div>
     <% if instructions.empty? %>
       <p class="empty">🍡 まだ会話はありませんにゃ。</p>
     <% else %>
-      <div class="chat-thread">
+      <div class="chat-thread" data-log-toggle-target="container">
         <% instructions.each do |instruction| %>
           <% instruction_executions = instruction.executions.sort_by(&:id) %>
 
