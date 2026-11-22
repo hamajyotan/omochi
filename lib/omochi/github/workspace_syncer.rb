@@ -325,7 +325,7 @@ module Omochi
           end
 
           diff_path = File.join(workspace_dir.to_s, PR_DIFF_FILENAME)
-          File.write(diff_path, diff_text.to_s)
+          File.write(diff_path, diff_text.to_s.dup.force_encoding(Encoding::UTF_8).scrub, encoding: Encoding::UTF_8)
 
           {
             "repository" => repository,

@@ -240,10 +240,11 @@ module Omochi
           end
 
           unless code.between?(200, 299)
-            raise ApiError, "GitHub HTTP #{code} on #{endpoint}: #{response.body.to_s.truncate(500)}"
+            body_preview = response.body.to_s.dup.force_encoding(Encoding::UTF_8).scrub.truncate(500)
+            raise ApiError, "GitHub HTTP #{code} on #{endpoint}: #{body_preview}"
           end
 
-          return response.body.to_s unless parse_json
+          return response.body.to_s.dup.force_encoding(Encoding::UTF_8).scrub unless parse_json
 
           JSON.parse(response.body.to_s)
         rescue JSON::ParserError => e

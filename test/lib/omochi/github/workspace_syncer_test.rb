@@ -264,6 +264,33 @@ class Omochi::GitHub::WorkspaceSyncerTest < ActiveSupport::TestCase
     assert_equal 101, @fake_app_client.added_labels.last[:issue_number]
   end
 
+  test "handles ASCII-8BIT UTF-8 byte sequences in PR diff without Encoding::UndefinedConversionError" do
+    quest = Quest.create!(title: "Japanese PR diff")
+    resource = quest.external_resources.create!(
+      platform: "github",
+      resource_type: "pull_request",
+      scope_key: "hamajyotan/omochi",
+      external_id: "42",
+      url: "https://github.com/hamajyotan/omochi/pull/42"
+    )
+    quest.receive_instruction!(body: "地域を鳥取市に修正", source_platform: "slack", external_resource: resource, enqueue: false)
+    exec = quest.claim_next_instruction!
+
+    @fake_app_client.pull_request_diffs["hamajyotan/omochi#42"] = "+<title>鳥取県米子地域</title>\n".b
+
+    syncer = Omochi::GitHub::WorkspaceSyncer.new(
+      app_client: @fake_app_client,
+      remote_url_resolver: ->(_repo) { @remote_repo }
+    )
+    workspace_dir = File.join(@tmp_root, "ws_jp_diff")
+    git_context = syncer.sync!(exec, workspace_dir)
+
+    assert_equal "pull_request", git_context["mode"]
+    assert_equal true, git_context["checked_out"]
+    written_diff = File.read(File.join(workspace_dir, ".omochi_pr.diff"), encoding: Encoding::UTF_8)
+    assert_includes written_diff, "鳥取県米子地域"
+  end
+
   private
     def setup_local_remote_repo(bare_path)
       work_path = File.join(@tmp_root, "seed_work")
