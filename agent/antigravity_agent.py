@@ -628,7 +628,7 @@ async def main():
                 fast_models = list(dict.fromkeys([primary_model, smart_model, "gemini-3.5-flash"]))
                 fast_instructions = build_routing_instructions(system_instructions, smart_model)
                 summary, used_model = await run_chat_with_fallback(
-                    Agent, fast_models, fast_instructions, prompt, attachments, sequence, step_error_handler, loop, emit_interim=False
+                    Agent, fast_models, fast_instructions, prompt, attachments, sequence, step_error_handler, loop
                 )
                 escalated, reason = parse_escalation_signal(summary)
                 if escalated:
