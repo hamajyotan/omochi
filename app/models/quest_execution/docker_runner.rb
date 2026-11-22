@@ -90,6 +90,12 @@ class QuestExecution::DockerRunner
       FileUtils.mkdir_p(workspace_dir)
 
       git_context = @workspace_syncer&.sync!(execution, workspace_dir)
+      if git_context.is_a?(Hash)
+        execution.record_event!(
+          event_type: "progress",
+          message: "Workspace synced: #{git_context['repository']} (mode: #{git_context['mode']}, checked_out: #{git_context['checked_out']})"
+        )
+      end
       attachments = prepare_attachments!(execution, workspace_dir)
 
       prior_history = quest.instructions
@@ -205,6 +211,10 @@ class QuestExecution::DockerRunner
     end
 
     def append_publish_result_to_summary(summary, publish_result)
+      if publish_result["action"] == "error"
+        return "#{summary}\n\n⚠️ GitHub push failed: #{publish_result['error']}"
+      end
+
       url = publish_result["url"].to_s
       return summary if url.blank? || summary.include?(url)
 

@@ -46,6 +46,7 @@ module Omochi
 
           unless pr_closed?(pr_data)
             return sync_pull_request!(
+              execution: execution,
               client: client,
               installation_id: installation_id,
               token: token,
@@ -68,6 +69,7 @@ module Omochi
       rescue StandardError => e
         sanitized = sanitize_error_message(e.message)
         Rails.error.report(e, context: { execution_id: execution.id, sanitized_message: sanitized })
+        record_sync_event(execution, "GitHub workspace sync failed: #{sanitized}")
         nil
       end
 
@@ -152,10 +154,17 @@ module Omochi
       rescue StandardError => e
         sanitized = sanitize_error_message(e.message)
         Rails.error.report(e, context: { execution_id: execution.id, sanitized_message: sanitized })
-        nil
+        record_sync_event(execution, "GitHub publish_changes failed: #{sanitized}")
+        { "action" => "error", "error" => sanitized }
       end
 
       private
+        def record_sync_event(execution, message)
+          execution.record_event!(event_type: "log", message: message)
+        rescue StandardError
+          nil
+        end
+
         def enabled?
           return true if @app_client.present?
 
@@ -277,7 +286,7 @@ module Omochi
           execution.quest.external_resources.find { |r| r.platform == "github" }
         end
 
-        def sync_pull_request!(client:, installation_id:, token:, repository:, pull_number:, workspace_dir:, pr_data: nil)
+        def sync_pull_request!(execution:, client:, installation_id:, token:, repository:, pull_number:, workspace_dir:, pr_data: nil)
           pr_data ||= client.fetch_pull_request(
             installation_id: installation_id,
             repository: repository,
@@ -299,7 +308,9 @@ module Omochi
             start_sha = rev_parse_head(workspace_dir)
             checked_out = true
           rescue StandardError => e
-            Rails.logger.warn("[WorkspaceSyncer] Git checkout failed for #{repository}##{pull_number}: #{sanitize_error_message(e.message)}")
+            sanitized = sanitize_error_message(e.message)
+            Rails.logger.warn("[WorkspaceSyncer] Git checkout failed for #{repository}##{pull_number}: #{sanitized}")
+            record_sync_event(execution, "Git checkout failed for #{repository}##{pull_number}: #{sanitized}")
           end
 
           diff_path = File.join(workspace_dir.to_s, PR_DIFF_FILENAME)
