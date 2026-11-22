@@ -60,6 +60,7 @@ class QuestExecution::DockerRunner
       event = execution.record_output_line!(line, stream: stream)
       last_heartbeat = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       apply_memory_event!(execution, event) if event.event_type == "memory"
+      execution.notify_slack_interim!(event.message) if event.event_type == "interim" && event.message.present?
       completed_event = event if event.event_type == "completed"
       failed_event = event if event.event_type == "failed"
     end

@@ -101,6 +101,13 @@ class QuestExecution < ApplicationRecord
     record_event!(**attrs)
   end
 
+  def notify_slack_interim!(text)
+    sanitized = Omochi::SecretRedactor.redact(text).to_s.strip
+    return if sanitized.blank?
+
+    notify_slack!(sanitized, remove_reaction_ts: nil)
+  end
+
   def mark_cleaned_up!
     update!(cleanup_status: :completed)
     quest.broadcast_dashboard_updates

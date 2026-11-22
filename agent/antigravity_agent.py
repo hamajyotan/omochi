@@ -106,8 +106,11 @@ async def resolve_response_text(
     step_error_handler: StepErrorHandler,
     idle_timeout: float = 90.0,
     total_timeout: float = 240.0,
+    emit_interim: bool = True,
+    min_interim_chars: int = 20,
+    interim_cooldown: float = 8.0,
 ) -> str:
-    """Resolves the full text from ChatResponse using an idle timeout that resets on every chunk/tool call."""
+    """Resolves the final turn text from ChatResponse while streaming interim updates between tool calls."""
     chunks_attr = getattr(response, "chunks", None)
     if chunks_attr is None:
         text_attr = getattr(response, "text", None)
@@ -118,7 +121,8 @@ async def resolve_response_text(
             tokens.append(str(token))
         return "".join(tokens).strip()
 
-    text_parts: list[str] = []
+    current_turn_parts: list[str] = []
+    last_interim_at: float | None = None
     chunk_iter = chunks_attr.__aiter__()
     loop = asyncio.get_running_loop()
     deadline = loop.time() + total_timeout
@@ -126,8 +130,8 @@ async def resolve_response_text(
     while True:
         remaining_total = deadline - loop.time()
         if remaining_total <= 0:
-            if text_parts:
-                return "".join(text_parts).strip()
+            if current_turn_parts:
+                return "".join(current_turn_parts).strip()
             raise TimeoutError(f"Timed out waiting for Antigravity response after {int(total_timeout)}s total")
 
         step_wait = min(idle_timeout, remaining_total)
@@ -147,8 +151,8 @@ async def resolve_response_text(
                     pass
 
             if err_task in done:
-                if text_parts:
-                    return "".join(text_parts).strip()
+                if current_turn_parts:
+                    return "".join(current_turn_parts).strip()
                 raise RuntimeError(step_error_handler.last_error or "Agent step terminated due to error")
 
             if next_task in done:
@@ -158,16 +162,26 @@ async def resolve_response_text(
                     break
                 cls_name = type(chunk).__name__
                 if cls_name == "ToolCall":
+                    turn_text = "".join(current_turn_parts).strip()
+                    current_turn_parts.clear()
+                    if emit_interim and turn_text:
+                        cleaned_turn, _ = extract_memory_updates(turn_text)
+                        escalated, _ = parse_escalation_signal(cleaned_turn)
+                        now = loop.time()
+                        cooldown_ok = last_interim_at is None or (now - last_interim_at) >= interim_cooldown
+                        if not escalated and len(cleaned_turn) >= min_interim_chars and cooldown_ok:
+                            emit("interim", message=cleaned_turn)
+                            last_interim_at = now
                     tool_name = getattr(chunk, "name", "tool")
                     emit("progress", message=f"Executing tool: {tool_name}...")
                 elif cls_name == "Text":
                     content = getattr(chunk, "text", None) or getattr(chunk, "content", None)
                     if content:
-                        text_parts.append(str(content))
+                        current_turn_parts.append(str(content))
                 continue
 
-            if text_parts:
-                return "".join(text_parts).strip()
+            if current_turn_parts:
+                return "".join(current_turn_parts).strip()
             raise TimeoutError(f"Timed out waiting for Antigravity step after {int(idle_timeout)}s of inactivity")
         finally:
             for task in (next_task, err_task):
@@ -178,7 +192,7 @@ async def resolve_response_text(
                     except BaseException:
                         pass
 
-    return "".join(text_parts).strip()
+    return "".join(current_turn_parts).strip()
 
 
 def build_chat_payload(prompt_text: str, attachments: list[dict]):
@@ -360,6 +374,7 @@ async def run_chat_with_fallback(
     sequence: int,
     step_error_handler: StepErrorHandler,
     loop: asyncio.AbstractEventLoop,
+    emit_interim: bool = True,
 ) -> tuple[str, str]:
     max_attempts = len(models)
     for idx, current_model in enumerate(models, start=1):
@@ -378,6 +393,7 @@ async def run_chat_with_fallback(
                     step_error_handler,
                     idle_timeout=90.0,
                     total_timeout=240.0,
+                    emit_interim=emit_interim,
                 )
                 return summary, current_model
         except Exception as e:
@@ -612,7 +628,7 @@ async def main():
                 fast_models = list(dict.fromkeys([primary_model, smart_model, "gemini-3.5-flash"]))
                 fast_instructions = build_routing_instructions(system_instructions, smart_model)
                 summary, used_model = await run_chat_with_fallback(
-                    Agent, fast_models, fast_instructions, prompt, attachments, sequence, step_error_handler, loop
+                    Agent, fast_models, fast_instructions, prompt, attachments, sequence, step_error_handler, loop, emit_interim=False
                 )
                 escalated, reason = parse_escalation_signal(summary)
                 if escalated:

@@ -79,6 +79,7 @@
           <% else %>
             <% instruction_executions.each do |execution| %>
               <% ordered_events = execution.events.sort_by(&:sequence) %>
+              <% interim_events = ordered_events.select { |e| e.event_type == "interim" && e.message.present? } %>
               <div id="<%= dom_id(execution) %>" class="chat-execution-block">
                 <details class="chat-logs" <%= "open" if execution.active? || execution.failed? %>>
                   <summary class="chat-logs__summary">
@@ -115,6 +116,20 @@
                     <% end %>
                   </div>
                 </details>
+
+                <% interim_events.each do |interim_event| %>
+                  <div class="chat-row chat-row--agent">
+                    <div class="chat-avatar" aria-hidden="true">🐱</div>
+                    <div class="chat-message chat-message--agent">
+                      <div class="chat-meta">
+                        <strong>omochi</strong>
+                        <span class="chat-source">途中経過</span>
+                        <span><%= format_time(interim_event.occurred_at) %></span>
+                      </div>
+                      <div class="chat-bubble chat-bubble--agent chat-bubble--interim pre"><%= interim_event.message %></div>
+                    </div>
+                  </div>
+                <% end %>
 
                 <% if execution.error_kind.present? %>
                   <div class="chat-row chat-row--agent">
