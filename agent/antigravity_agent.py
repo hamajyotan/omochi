@@ -101,6 +101,13 @@ async def heartbeat_worker(interval: float = 15.0):
         count += 1
 
 
+def _looks_like_complete_turn(text: str, min_chars: int = 80) -> bool:
+    stripped = text.strip()
+    if len(stripped) < min_chars:
+        return False
+    return stripped.endswith(("。", "！", "!", "？", "?", "にゃ", "ます", "です", "```"))
+
+
 async def resolve_response_text(
     response,
     step_error_handler: StepErrorHandler,
@@ -122,16 +129,22 @@ async def resolve_response_text(
         return "".join(tokens).strip()
 
     current_turn_parts: list[str] = []
+    last_completed_turn = ""
     last_interim_at: float | None = None
     chunk_iter = chunks_attr.__aiter__()
     loop = asyncio.get_running_loop()
     deadline = loop.time() + total_timeout
 
+    def current_or_fallback() -> str:
+        text = "".join(current_turn_parts).strip()
+        return text or last_completed_turn
+
     while True:
         remaining_total = deadline - loop.time()
         if remaining_total <= 0:
-            if current_turn_parts:
-                return "".join(current_turn_parts).strip()
+            fallback = current_or_fallback()
+            if fallback:
+                return fallback
             raise TimeoutError(f"Timed out waiting for Antigravity response after {int(total_timeout)}s total")
 
         step_wait = min(idle_timeout, remaining_total)
@@ -151,8 +164,9 @@ async def resolve_response_text(
                     pass
 
             if err_task in done:
-                if current_turn_parts:
-                    return "".join(current_turn_parts).strip()
+                fallback = current_or_fallback()
+                if fallback:
+                    return fallback
                 raise RuntimeError(step_error_handler.last_error or "Agent step terminated due to error")
 
             if next_task in done:
@@ -177,11 +191,23 @@ async def resolve_response_text(
                 elif cls_name == "Text":
                     content = getattr(chunk, "text", None) or getattr(chunk, "content", None)
                     if content:
-                        current_turn_parts.append(str(content))
+                        piece = str(content)
+                        if current_turn_parts and _looks_like_complete_turn("".join(current_turn_parts)) and _looks_like_complete_turn(piece):
+                            last_completed_turn = "".join(current_turn_parts).strip()
+                            current_turn_parts = [piece]
+                        else:
+                            current_turn_parts.append(piece)
+                else:
+                    # Non-Text boundary chunk (e.g. Thought / ToolResult / step transition):
+                    # prevent concatenating separate turn responses together.
+                    if current_turn_parts:
+                        last_completed_turn = "".join(current_turn_parts).strip()
+                        current_turn_parts.clear()
                 continue
 
-            if current_turn_parts:
-                return "".join(current_turn_parts).strip()
+            fallback = current_or_fallback()
+            if fallback:
+                return fallback
             raise TimeoutError(f"Timed out waiting for Antigravity step after {int(idle_timeout)}s of inactivity")
         finally:
             for task in (next_task, err_task):
@@ -192,7 +218,7 @@ async def resolve_response_text(
                     except BaseException:
                         pass
 
-    return "".join(current_turn_parts).strip()
+    return current_or_fallback()
 
 
 def build_chat_payload(prompt_text: str, attachments: list[dict]):
