@@ -238,4 +238,33 @@ class Omochi::GitHub::EventHandlerTest < ActiveSupport::TestCase
     assert result.created_quest
     assert_includes result.instruction.quest.title, "Review PR #102"
   end
+
+  test "ignores webhooks from repositories not listed in GITHUB_REPOSITORIES" do
+    payload = build_pr_payload(reviewer: "omochi")
+    payload["repository"]["full_name"] = "untrusted/other-repo"
+
+    result = @handler.handle(event_type: "pull_request", delivery_id: "deliv_untrusted", payload: payload)
+
+    assert_equal :ignored, result.status
+    assert_nil result.instruction
+  end
+
+  test "accepts webhooks from repositories added to GITHUB_REPOSITORIES" do
+    orig_repos = Rails.configuration.omochi[:github][:repositories]
+    Rails.configuration.omochi[:github][:repositories] = "hamajyotan/omochi,daraz-tek/daraz-tek.github.io"
+
+    begin
+      payload = build_pr_payload(reviewer: "omochi", pr_number: 7)
+      payload["repository"]["full_name"] = "daraz-tek/daraz-tek.github.io"
+      payload["pull_request"]["html_url"] = "https://github.com/daraz-tek/daraz-tek.github.io/pull/7"
+
+      result = @handler.handle(event_type: "pull_request", delivery_id: "deliv_org_repo", payload: payload)
+
+      assert_equal :accepted, result.status
+      assert result.created_quest
+      assert_equal "daraz-tek/daraz-tek.github.io", result.instruction.external_resource.scope_key
+    ensure
+      Rails.configuration.omochi[:github][:repositories] = orig_repos
+    end
+  end
 end

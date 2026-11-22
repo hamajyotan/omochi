@@ -14,6 +14,7 @@ module Omochi
 
       def handle(event_type:, delivery_id:, payload:)
         return ignored unless payload.is_a?(Hash)
+        return ignored unless allowed_repository?(payload["repository"])
 
         case event_type
         when "pull_request"
@@ -28,6 +29,23 @@ module Omochi
       private
         def ignored
           Result.new(status: :ignored, instruction: nil, created_quest: false, duplicate: false)
+        end
+
+        def allowed_repository?(repo)
+          return false unless repo.is_a?(Hash)
+
+          full_name = repo["full_name"].to_s.strip
+          return false if full_name.empty?
+
+          configured_repositories.any? { |r| r.casecmp?(full_name) }
+        end
+
+        def configured_repositories
+          raw = Omochi::Settings.dig(:github, :repositories).to_s
+          default_repo = Omochi::Settings.dig(:github, :repository).to_s.strip
+          list = raw.split(",").map(&:strip).reject(&:empty?)
+          list << default_repo if default_repo.present?
+          list.uniq
         end
 
         def handle_pull_request(delivery_id, payload)
