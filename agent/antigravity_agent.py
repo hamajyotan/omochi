@@ -368,7 +368,13 @@ def build_memory_instructions() -> str:
     )
 
 
+URL_PATTERN = re.compile(r"https?://\S+", re.IGNORECASE)
 ESCALATION_PATTERN = re.compile(r"\[\[ESCALATE_(READ|CODE|MODEL)(?:\s*:\s*(.+?))?\]\]", re.DOTALL)
+
+
+def has_url(text: str) -> bool:
+    """Returns True if text contains an http(s) URL."""
+    return bool(URL_PATTERN.search(text or ""))
 
 
 def parse_escalation_signal(text: str) -> tuple[str | None, str]:
@@ -766,6 +772,24 @@ async def main():
                 summary, _ = await run_chat_with_fallback(
                     Agent, smart_models, full_system_instructions, prompt, attachments, sequence, step_error_handler, loop, tool_mode="full"
                 )
+            elif routing_enabled and has_url(body):
+                if fast_sources:
+                    emit("progress", message=f"Loaded instructions from {', '.join(fast_sources)}.")
+                emit("progress", message=f"URL detected in instruction; starting directly at Stage 2 ({read_model}, tools=read_only).")
+                read_models = list(dict.fromkeys([read_model, smart_model, "gemini-3.5-flash"]))
+                read_instructions = build_read_routing_instructions(fast_system_instructions, smart_model)
+                summary, used_model = await run_chat_with_fallback(
+                    Agent, read_models, read_instructions, prompt, attachments, sequence, step_error_handler, loop, tool_mode="read_only"
+                )
+                stage_target, reason = parse_escalation_signal(summary)
+                if stage_target == "code":
+                    reason_note = reason or "Coding or complex reasoning required."
+                    emit("progress", message=f"Escalating from {used_model} to Stage 3 ({smart_model}, tools=full): {reason_note}")
+                    handoff_prompt = f"{prompt}\n\n[Model Handoff Note from {used_model}]: {reason_note}"
+                    smart_models = list(dict.fromkeys([smart_model, "gemini-3.5-flash", primary_model]))
+                    summary, _ = await run_chat_with_fallback(
+                        Agent, smart_models, full_system_instructions, handoff_prompt, attachments, sequence, step_error_handler, loop, tool_mode="full"
+                    )
             elif routing_enabled:
                 if fast_sources:
                     emit("progress", message=f"Loaded instructions from {', '.join(fast_sources)}.")
