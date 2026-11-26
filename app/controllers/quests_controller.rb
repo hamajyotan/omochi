@@ -1,11 +1,22 @@
 class QuestsController < ApplicationController
+  DEFAULT_PER_PAGE = 20
+
   before_action :set_quest, only: %i[show cancel reopen]
 
   def index
     scope = Quest.recent
     @status_filter = params[:status].to_s if Quest.statuses.key?(params[:status].to_s)
     scope = scope.where(status: @status_filter) if @status_filter
-    @quests = scope.limit(100)
+
+    @per_page = DEFAULT_PER_PAGE
+    @total_count = scope.count
+    @total_pages = [ (@total_count.to_f / @per_page).ceil, 1 ].max
+
+    requested_page = params[:page].to_i
+    @page = requested_page > 0 ? requested_page : 1
+    @page = @total_pages if @page > @total_pages
+
+    @quests = scope.offset((@page - 1) * @per_page).limit(@per_page)
   end
 
   def show

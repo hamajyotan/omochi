@@ -36,4 +36,20 @@ module QuestsHelper
 
     seconds < 60 ? format("%.1fs", seconds) : "#{(seconds / 60).floor}m #{(seconds % 60).round}s"
   end
+
+  def pagination_page_numbers(current_page, total_pages, window: 2)
+    return (1..total_pages).to_a if total_pages <= (window * 2 + 3)
+
+    pages = [ 1 ]
+    left = current_page - window
+    right = current_page + window
+
+    pages << :gap if left > 2
+    ((left.clamp(2, total_pages))..(right.clamp(1, total_pages - 1))).each do |p|
+      pages << p
+    end
+    pages << :gap if right < total_pages - 1
+    pages << total_pages
+    pages.uniq
+  end
 end
