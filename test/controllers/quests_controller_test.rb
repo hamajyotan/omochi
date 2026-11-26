@@ -119,4 +119,36 @@ class QuestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "queued", instruction.reload.status
     assert quest.reload.pending?
   end
+
+  test "index paginates quests 20 per page" do
+    25.times do |n|
+      start_quest(title: "Quest #{n + 1}")
+    end
+
+    get quests_path
+    assert_response :success
+    assert_select "tbody#quests_rows tr", count: 20
+    assert_select "nav.pagination"
+    assert_select ".pagination__info", text: /全 25 件中 1-20 件目を表示/
+    assert_select "a[href=?]", quests_path(page: 2), text: "2"
+
+    get quests_path(page: 2)
+    assert_response :success
+    assert_select "tbody#quests_rows tr", count: 5
+    assert_select ".pagination__info", text: /全 25 件中 21-25 件目を表示/
+    assert_select "a[href=?]", quests_path(page: 1), text: "◀ 前へ"
+  end
+
+  test "index pagination maintains status filter" do
+    25.times do |n|
+      quest = start_quest(title: "Completed Quest #{n + 1}")
+      quest.claim_next_instruction!.succeed!(result_summary: "ok")
+    end
+    start_quest(title: "Pending Quest")
+
+    get quests_path(status: "completed", page: 2)
+    assert_response :success
+    assert_select "tbody#quests_rows tr", count: 5
+    assert_select "a[href=?]", quests_path(status: "completed", page: 1)
+  end
 end
